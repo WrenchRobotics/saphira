@@ -1,0 +1,30 @@
+name: 'Sapphira'
+description: 'A GitHub Action for benchmarking and evaluating robotics systems using Sapphira. Developed by Wrench Robotics.'
+inputs:
+  path-to-example-run: # id of input
+    description: 'Path to the example directory, where a file exists that runs one of the Production objects from brom_drake.'
+    required: true
+    default: 'examples/sapphira/run1/'
+outputs:
+  output-data-directory: # id of output
+    description: 'The directory where the output data is stored.'
+    # value: '${{ steps.run-sapphira.outputs.output-data-directory }}' # TODO(Kwesi): Uncomment this line when we know that the output directory is set in a step.
+runs:
+  using: "composite"
+  steps:
+    - name: Announce that saphira has started
+      run: echo "Sapphira has started running."
+    - name: Locate the example run
+      run: |
+       echo "The example run is located at ${{ inputs.path-to-example-run }}"
+       matching_files=()
+       find ${{ inputs.path-to-example-run }} -type f -name "*.py" | while read file; do
+         echo "Found Python file: $file"
+         if grep -q "brom_drake.productions" "$file"; then
+            echo "File $file contains 'brom_drake.productions'"
+            matching_files+=("$file")
+         fi
+       done
+       echo "Matching files: ${matching_files[@]}"
+       first_file="${matching_files[0]}"
+       echo "Selecting the first Python file that contains productions in it: $first_file" 
