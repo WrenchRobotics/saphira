@@ -28,5 +28,5 @@ jobs:
         id: run-sapphira
         uses: ./
         with:
-          path-to-example-run: src/examples/grasping/
+          path-to-example-run: src/examples/grasping1/
       
