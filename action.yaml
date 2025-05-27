@@ -6,9 +6,8 @@ inputs:
     required: true
     default: 'examples/sapphira/run1/'
   python_version:
-    description: |
-      Python Version
-      Default is '3.10'.
+    description: 'Python Version. Default is "3.10".'
+    required: false
     default: '3.10'
   number-of-initial-conditions:
     description: 'Number of initial conditions to use for the example run.'
