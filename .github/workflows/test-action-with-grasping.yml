@@ -3,7 +3,7 @@ on: [pull_request, deployment]
 jobs:
   run:
     runs-on: ubuntu-latest
-    name: Run tests and collect coverage
+    name: Testing Grasping1 Example with Sapphira Action
     strategy:
       matrix:
         python_version: [ '3.10']
