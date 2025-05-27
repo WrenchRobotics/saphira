@@ -39,6 +39,7 @@ runs:
         fallback: 0.0.1 # Optional fallback tag to use when no tag can be found
         #workingDirectory: another/path/where/a/git/repo/is/checked/out # Optional alternative working directory
     - name: Update version in setup.py
+      shell: bash
       run: >-
         sed -i "s/{{VERSION_PLACEHOLDER}}/${{ steps.previous_tag.outputs.tag }}/g" src/python/setup.py
     - name: Locate the example run
