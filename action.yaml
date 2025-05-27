@@ -5,6 +5,19 @@ inputs:
     description: 'Path to the example directory, where a file exists that runs one of the Production objects from brom_drake.'
     required: true
     default: 'examples/sapphira/run1/'
+  python_version:
+    description: |
+      Python Version
+      Default is '3.10'.
+    default: '3.10'
+  number-of-initial-conditions:
+    description: 'Number of initial conditions to use for the example run.'
+    required: false
+    default: '1'
+  random-seed:
+    description: 'Random seed which is used to ensure reproducibility of the example run.'
+    required: false
+    default: '0'
 outputs:
   output-data-directory: # id of output
     description: 'The directory where the output data is stored.'
@@ -12,6 +25,11 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - id: setup-python
+      name: setup python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python_version }}
     - name: Announce that saphira has started
       shell: bash
       run: echo "Sapphira has started running."
