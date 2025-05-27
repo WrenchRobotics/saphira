@@ -1,0 +1,32 @@
+name: Test Action with a Brom Drake Grasping Production
+on: [pull_request, deployment]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    name: Run tests and collect coverage
+    strategy:
+      matrix:
+        python_version: [ '3.10']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Fetch all history for git tag
+      - name: Set up Python ${{ matrix.python_version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python_version }}
+      - name: Install dependencies
+        run: pip install brom_drake
+      - name: Get Previous Tag
+        id: previous_tag
+        uses: "WyriHaximus/github-action-get-previous-tag@v1"
+        with:
+          fallback: 0.0.1 # Optional fallback tag to use when no tag can be found
+          #workingDirectory: another/path/where/a/git/repo/is/checked/out # Optional alternative working directory
+      - name: Run Sapphira Action
+        id: run-sapphira
+        uses: ./
+        with:
+          path-to-example-run: src/examples/grasping/
+      
