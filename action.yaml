@@ -13,8 +13,10 @@ runs:
   using: "composite"
   steps:
     - name: Announce that saphira has started
+      shell: bash
       run: echo "Sapphira has started running."
     - name: Locate the example run
+      shell: bash
       run: |
        echo "The example run is located at ${{ inputs.path-to-example-run }}"
        matching_files=()
