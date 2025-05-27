@@ -20,13 +20,13 @@ runs:
       run: |
        echo "The example run is located at ${{ inputs.path-to-example-run }}"
        matching_files=()
-       find ${{ inputs.path-to-example-run }} -type f -name "*.py" | while read file; do
+       while read file; do
          echo "Found Python file: $file"
          if grep -q "brom_drake.productions" "$file"; then
             echo "File $file contains 'brom_drake.productions'"
             matching_files+=("$file")
          fi
-       done
+       done < <(find ${{ inputs.path-to-example-run }} -type f -name "*.py")
        echo "Matching files: ${matching_files[@]}"
        first_file="${matching_files[0]}"
        echo "Selecting the first Python file that contains productions in it: $first_file" 
