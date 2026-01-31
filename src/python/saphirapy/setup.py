@@ -1,23 +1,22 @@
 from setuptools import find_packages, setup
-import codecs
 import os
 
 if __name__ == "__main__":
     here = os.path.abspath(os.path.dirname(__file__))
 
-    with codecs.open(
+    with open(
         os.path.join(here, "README.md"), encoding="utf-8"
     ) as f:
         long_description = "\n" + f.read()
 
-    with codecs.open(
+    with open(
         os.path.join(here, "requirements.txt"), encoding="utf-8"
     ) as f:
         install_requires = [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
     setup(
         name="saphirapy",
-        version='{{VERSION_PLACEHOLDER}}',
+        version='0.0.0',
         author="Kwesi Rutledge",
         author_email="thesolitaryecrivain@gmail.com",
         url="https://github.com/WrenchRobotics/saphira",
