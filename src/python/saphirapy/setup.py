@@ -10,8 +10,13 @@ if __name__ == "__main__":
     ) as f:
         long_description = "\n" + f.read()
 
+    with codecs.open(
+        os.path.join(here, "requirements.txt"), encoding="utf-8"
+    ) as f:
+        install_requires = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+
     setup(
-        name="saphira_py",
+        name="saphirapy",
         version='{{VERSION_PLACEHOLDER}}',
         author="Kwesi Rutledge",
         author_email="thesolitaryecrivain@gmail.com",
@@ -19,12 +24,7 @@ if __name__ == "__main__":
         description="A python library to assist with the benchmarking and testing of Drake-based robotics systems.",
         long_description_content_type="text/markdown",
         long_description=long_description,
-        # packages=find_packages(where='src/brom_drake'),
-        install_requires=[
-            'drake', 'meshcat',
-            'loguru', 'matplotlib', 'numpy',
-            'pycollada', 'trimesh',
-        ],
+        install_requires=install_requires,
         keywords=["drake", "robotics", "testing", "logging"],
         classifiers=[
             "Programming Language :: Python :: 3",
