@@ -1,0 +1,7 @@
+drake==1.40.0
+meshcat==0.3.2
+loguru==0.7.3
+matplotlib==3.10.3
+numpy==2.2.6
+pycollada
+trimesh==4.6.10
