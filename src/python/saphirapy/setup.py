@@ -16,7 +16,7 @@ if __name__ == "__main__":
 
     setup(
         name="saphirapy",
-        version='0.0.0',
+        version='0.0.0+placeholder',
         author="Kwesi Rutledge",
         author_email="thesolitaryecrivain@gmail.com",
         url="https://github.com/WrenchRobotics/saphira",
