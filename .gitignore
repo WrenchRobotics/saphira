@@ -170,3 +170,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Brom Generated Files
+**/brom
