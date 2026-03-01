@@ -13,41 +13,42 @@ class TestTransformer(unittest.TestCase):
         pass
 
     def test_init1(self):
-        transformer1 = BromRestagingManager(
+        manager1 = BromRestagingManager(
             output_dir="./test_output",
         )
         self.assertTrue(True)
 
     def test_find_production_instances1(self):
         # Setup
-        transformer1 = BromRestagingManager(
+        manager1 = BromRestagingManager(
             output_dir="./test_output",
         )
        
         # Read contents of the target file and put it into a syntax tree
-        target_file_path = Path("../data/attempt.py")
+        target_file_path = Path("../data/grasping_test/attempt.py")
         target_file_contents = target_file_path.read_text()
         parsed_tree = ast.parse(target_file_contents)
 
         # Find the Production instantiations in the syntax tree
-        production_instances = transformer1.find_production_instances(parsed_tree)
+        production_instances = manager1.find_production_instances(parsed_tree)
 
         print(f"Found {len(production_instances)} object instantiations:")
         for instance in production_instances:
-            print(f"  {instance['variable']} = {instance['class']}()")
+            print(f"  {instance.variable_name} = {instance.production_class}()")
 
         # Check that we find only one production instantiation and that it is of the correct class
         self.assertEqual(len(production_instances), 1)
-        self.assertEqual(production_instances[0]['class'], 'AttemptGraspWithStaticWrist')
+
+        self.assertEqual(production_instances[0].production_class, 'AttemptGraspWithStaticWrist')
 
     def test_transform_invalid_data(self):
         # Setup
-        # transformer1 = BromRestagingManager(
+        # manager1 = BromRestagingManager(
         #     target_file="../data/attempt.py",
         # )
        
         # Read contents of the target file
-        target_file_path = Path("../data/attempt.py")
+        target_file_path = Path("../data/grasping_test/attempt.py")
         target_file_contents = target_file_path.read_text()
         parsed_tree = ast.parse(target_file_contents)
     
@@ -102,6 +103,18 @@ class TestTransformer(unittest.TestCase):
 
         self.assertGreater(len(production_subclasses), 0)
 
+    def test_generate_restaged_code1(self):
+        # Setup
+        manager1 = BromRestagingManager(
+            output_dir="./saphira/test_generate_restaged_code1/",
+        )
+
+        target_file_path = Path("../data/motion_planning/chem_lab_demo.py")
+        new_files = manager1.generate_restaged_code(target_file_path)
+
+        print(f"Generated {len(new_files)} new files:")
+        for file in new_files:
+            print(f"  {file}")
 
 if __name__ == '__main__':
     unittest.main()
