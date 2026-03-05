@@ -4,6 +4,7 @@ import unittest
 
 # Import Drake first to ensure proper binding order
 import pydrake.all
+from brom_drake.productions.all import AttemptGraspWithPuppeteerWrist
 
 # Internal imports
 from saphirapy.restaging import BromRestagingManager
@@ -39,7 +40,7 @@ class TestTransformer(unittest.TestCase):
         # Check that we find only one production instantiation and that it is of the correct class
         self.assertEqual(len(production_instances), 1)
 
-        self.assertEqual(production_instances[0].production_class, 'AttemptGraspWithStaticWrist')
+        self.assertIs(production_instances[0].production_class, AttemptGraspWithPuppeteerWrist)
 
     def test_transform_invalid_data(self):
         # Setup
