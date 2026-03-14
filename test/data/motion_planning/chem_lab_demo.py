@@ -31,10 +31,10 @@ def main(meshcat_port_number: int = 7001):
     # Create a planner object which will be used to plan the motion
     config = RRTConnectPlannerConfig(
         steering_step_size=0.1,
-        prob_sample_goal=0.30,
+        prob_sample_goal=0.03,
         max_iterations=int(1e5),
         convergence_threshold=1e-3,
-        debug_flag=True,
+        debug_flag=False,
     )
     planner2 = RRTConnectPlanner(
         production.arm,

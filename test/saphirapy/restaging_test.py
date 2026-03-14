@@ -11,22 +11,24 @@ from saphirapy.restaging import BromRestagingManager
 
 class TestTransformer(unittest.TestCase):
     def setUp(self):
-        pass
+        # Save the data directory path for use in the tests
+        self.data_directory = Path(__file__).resolve().parents[1] / "data"
+        self.output_directory = Path(__file__).resolve() / "saphira" / "test_output"
 
     def test_init1(self):
         manager1 = BromRestagingManager(
-            output_dir="./test_output",
+            output_dir=self.output_directory / "test_init1",
         )
         self.assertTrue(True)
 
     def test_find_production_instances1(self):
         # Setup
         manager1 = BromRestagingManager(
-            output_dir="./test_output",
+            output_dir=self.output_directory / "test_find_production_instances1",
         )
        
         # Read contents of the target file and put it into a syntax tree
-        target_file_path = Path("../data/grasping_test/attempt.py")
+        target_file_path = self.data_directory / "grasping_test/attempt.py"
         target_file_contents = target_file_path.read_text()
         parsed_tree = ast.parse(target_file_contents)
 
@@ -43,13 +45,19 @@ class TestTransformer(unittest.TestCase):
         self.assertIs(production_instances[0].production_class, AttemptGraspWithPuppeteerWrist)
 
     def test_transform_invalid_data(self):
+        """
+        **Description**
+
+        In this test, we test the logic of the `find_production_instances` method in a more isolated way, by giving it an AST that we construct ourselves.
+        This allows us to test the logic of the method without relying on the contents of an external file, and to easily test edge cases (e.g., multiple instantiations, no instantiations, instantiations that do not inherit from BaseProduction, etc.)
+        """
         # Setup
         # manager1 = BromRestagingManager(
         #     target_file="../data/attempt.py",
         # )
        
         # Read contents of the target file
-        target_file_path = Path("../data/grasping_test/attempt.py")
+        target_file_path = self.data_directory / "grasping_test/attempt.py"
         target_file_contents = target_file_path.read_text()
         parsed_tree = ast.parse(target_file_contents)
     
@@ -107,15 +115,32 @@ class TestTransformer(unittest.TestCase):
     def test_generate_restaged_code1(self):
         # Setup
         manager1 = BromRestagingManager(
-            output_dir="./saphira/test_generate_restaged_code1/",
+            output_dir=self.output_directory / "test_generate_restaged_code1",
         )
 
-        target_file_path = Path("../data/motion_planning/chem_lab_demo.py")
+        target_file_path = self.data_directory / "motion_planning/chem_lab_demo.py"
         new_files = manager1.generate_restaged_code(target_file_path)
 
         print(f"Generated {len(new_files)} new files:")
         for file in new_files:
             print(f"  {file}")
+
+    def test_restage_and_run1(self):
+        """
+        **Description**
+
+        In this test, we verify that we can successfully restage the code from `chem_lab_demo.py` and run it without errors.
+        This serves as an end-to-end test of the restaging process, ensuring that the generated code is functional and can execute a motion planning production.
+        It is also a necessary building block of future tests, which will analyze the results of the results.
+        """
+        # Setup
+        target_file_path = self.data_directory / "motion_planning/chem_lab_demo.py"
+        manager1 = BromRestagingManager(
+            output_dir=self.output_directory / "test_restage_and_run1",
+        )
+
+        # Restage and run the code
+        manager1.restage_and_run(target_file_path)
 
 if __name__ == '__main__':
     unittest.main()

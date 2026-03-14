@@ -1,4 +1,6 @@
 import ast
+import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 from .syntax_tree.production_reference import ProductionReference
@@ -234,14 +236,32 @@ class BromRestagingManager:
 
         return out
 
-    def transform(self, data: str) -> dict:
+    def restage_and_run(self, target_file: Path) -> None:
         """
-        Transforms the Brom Benchmark data from a string representation to a dictionary.
+        **Description**
 
-        Args:
-            data (str): The Brom Benchmark data as a string.
+        A convenience method that combines the generation of restaged code with running the generated code.
 
-        Returns:
-            dict: The transformed data as a dictionary.
+        **Arguments**
+
+        target_file: Path
+            The path to the target Python file to restage and run.
         """
-        return ast.literal_eval(data)
+        # 
+        new_files = self.generate_restaged_code(target_file)
+        processes: Dict[Path, subprocess.Popen] = {}
+
+        for file in new_files:
+            print(f"Starting restaged file in parallel process: {file}")
+            processes[file] = subprocess.Popen([sys.executable, str(file)])
+
+        failed_files: List[Tuple[Path, int]] = []
+        for file, process in processes.items():
+            return_code = process.wait()
+            print(f"Finished restaged file: {file} (exit code: {return_code})")
+            if return_code != 0:
+                failed_files.append((file, return_code))
+
+        if failed_files:
+            failed_summary = ", ".join([f"{path} (code {code})" for path, code in failed_files])
+            raise RuntimeError(f"One or more restaged files failed: {failed_summary}")
