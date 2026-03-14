@@ -173,3 +173,6 @@ cython_debug/
 
 # Brom Generated Files
 **/brom
+
+# Saphira Generated Files In Tests
+test/**/saphira
