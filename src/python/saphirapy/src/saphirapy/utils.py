@@ -1,4 +1,4 @@
-from .productions_map import RELATED_PRODUCTIONS
+from .productions.relationships import RELATED_PRODUCTIONS
 
 def find_all_alternative_productions(production_class: type) -> list[type]:
     """
