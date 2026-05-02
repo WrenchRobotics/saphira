@@ -4,6 +4,7 @@ from brom_drake.motion_planning.algorithms.rrt.connect import (
     RRTConnectPlanner,
 )
 from brom_drake.productions.motion_planning.offline import ChemLab1
+from brom_drake.watchers.all import DiagramWatcher
 from pathlib import Path
 from pydrake.all import Simulator
 import numpy as np
@@ -12,9 +13,7 @@ from typing import Tuple
 import unittest
 
 class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
-    def create_dummy_offline_kinematic_motion_planning_evaluator(
-            self
-        ) -> Tuple[Simulator, ChemLab1]:
+    def _create_simple_offline_kinematic_motion_production(self) -> Tuple[Simulator, ChemLab1]:
         # Create production
         chem_lab_production = ChemLab1(meshcat_port_number=None)  # Use None for CI
 
@@ -50,19 +49,47 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
         simulator.Initialize()
 
         return simulator, chem_lab_production
+    
+    def create_dummy_offline_kinematic_motion_planning_evaluator(
+            self,
+            T_sim: float = 0.1,
+        ) -> Tuple[
+            OfflineKinematicMotionPlanningEvaluator,
+            Simulator,
+            ChemLab1
+        ]:
+        
+        # Create a dummy production and simulate it to generate the configuration history file
+        simulator, production = self._create_simple_offline_kinematic_motion_production()
+
+        # Simulate for a short time to generate the files we want
+        simulator.AdvanceTo(T_sim)
+
+        # Save the data from this small simulation. Can be triggered by:
+        # 1. Deleting the simulator (triggers the BromWatcher to save the data files)
+        # 2. Manually triggering the save function in the BromWatcher (not implemented yet)
+
+        watcher: DiagramWatcher = production.watcher
+        watcher._save_figures()
+        watcher._save_raw_data()
+
+        # Create the evaluator, which will look for the configuration history file and load it
+        evaluator = OfflineKinematicMotionPlanningEvaluator(
+            brom_watcher_dir=Path(watcher.options.base_directory),
+            start_configuration=production.start_configuration,
+            goal_configuration=production.goal_configuration,
+        )
+
+        return evaluator, simulator, production
+        
+
 
     def setUp(self):
-        # Set up a temporary directory and create a dummy configuration history file
-        self.brom_watcher_dir = Path("./temp_brom_watcher")
-        self.brom_watcher_dir.mkdir(exist_ok=True)
-        
         # Create a dummy simulator and production to get the configuration history
-        simulator, production = self.create_dummy_offline_kinematic_motion_planning_evaluator()
+        self.evaluator, self.simulator, self.production = self.create_dummy_offline_kinematic_motion_planning_evaluator()
 
-        # Simulate to generate the configuration history file
-        simulator.AdvanceTo(0.1)
-        simulator.AdvanceTo(0.2)
-        simulator.AdvanceTo(0.3)
+        self.brom_watcher_dir = self.evaluator.brom_watcher_dir
+        
 
     def tearDown(self):
         # Clean up the temporary directory
@@ -74,3 +101,6 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
         # Test if the data is loaded correctly
         loaded_configuration_history = self.evaluator._load_data_for_evaluation()
         np.testing.assert_array_equal(loaded_configuration_history, self.configuration_history)
+
+if __name__ == "__main__":
+    unittest.main()
