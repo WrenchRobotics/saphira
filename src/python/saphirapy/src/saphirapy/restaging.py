@@ -24,7 +24,10 @@ class BromRestagingManager:
     """
     # The directory where the restaged code will be saved.
     def __init__(self, output_dir: Path|str):
-        self.output_dir: Path = Path(output_dir)
+        if isinstance(output_dir, str):
+            output_dir = Path(output_dir)
+            
+        self.output_dir: Path = output_dir
 
     def _iter_nodes_with_paths(self, tree: ast.AST) -> Iterator[Tuple[ast.AST, NodePath]]:
         """
@@ -180,7 +183,7 @@ class BromRestagingManager:
                 # - Make sure to create the output directory if it does not exist
                 self.output_dir.mkdir(parents=True, exist_ok=True)
 
-                # - Write file and save the written files ot a list to return
+                # - Write file and save the written files to a list to return
                 new_file_path.write_text(ast.unparse(new_tree))
                 new_files.append(new_file_path)
 

@@ -13,7 +13,7 @@ class TestTransformer(unittest.TestCase):
     def setUp(self):
         # Save the data directory path for use in the tests
         self.data_directory = Path(__file__).resolve().parents[1] / "data"
-        self.output_directory = Path(__file__).resolve() / "saphira" / "test_output"
+        self.output_directory = Path(__file__).resolve().parents[1] / "saphira" / "test_output"
 
     def test_init1(self):
         manager1 = BromRestagingManager(
