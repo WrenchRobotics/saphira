@@ -1,6 +1,9 @@
 name: Test Action with a Brom Drake Grasping Production
 on: [pull_request, deployment]
 
+env:
+  PYTHON_VERSION: '3.14.2'
+
 jobs:
   prepare:
     runs-on: ubuntu-latest
@@ -24,6 +27,7 @@ jobs:
         uses: ./.github/actions/saphira-detect
         with:
           path-to-example-run: src/examples/grasping1/
+          python_version: ${{ env.PYTHON_VERSION }}
 
       - name: Normalize related productions output
         id: normalize-related
@@ -70,6 +74,7 @@ jobs:
         with:
           target-file: ${{ needs.prepare.outputs.example-file }}
           production-class: ${{ matrix.production }}
+          python_version: ${{ env.PYTHON_VERSION }}
 
       - name: Upload matrix result artifact
         if: always()
@@ -90,7 +95,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.14.2'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         shell: bash
@@ -160,6 +165,7 @@ jobs:
         uses: ./.github/actions/saphira-collate-comment
         with:
           results-directories: productions/matrix-results
+          python_version: ${{ env.PYTHON_VERSION }}
           detected-parent: ${{ needs.prepare.outputs.detected-parent }}
           allow-comment-update: >-
             ${{
