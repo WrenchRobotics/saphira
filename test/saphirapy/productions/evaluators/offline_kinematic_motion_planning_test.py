@@ -4,11 +4,12 @@ from brom_drake.motion_planning.algorithms.rrt.connect import (
     RRTConnectPlanner,
 )
 from brom_drake.productions.motion_planning.offline import ChemLab1
-from brom_drake.watchers.all import DiagramWatcher
+from brom_drake.watchers.all import DiagramTarget, DiagramWatcher
 from pathlib import Path
 from pydrake.all import Simulator
 import numpy as np
 from saphirapy.productions.evaluators.offline_kinematic_motion_planning import OfflineKinematicMotionPlanningEvaluator
+import shutil
 from typing import Tuple
 import unittest
 
@@ -74,11 +75,31 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
         watcher._save_raw_data()
 
         # Create the evaluator, which will look for the configuration history file and load it
+        # - First, create the target system to evaluate
+        target_system = production.station.get_name()
+        target_port = "measured_arm_position"
+        target = DiagramTarget(
+            name=target_system, 
+            ports=[target_port]
+        )
+
+        # - Create the evaluator
         evaluator = OfflineKinematicMotionPlanningEvaluator(
-            brom_watcher_dir=Path(watcher.options.base_directory),
+            watcher=production.watcher,
             start_configuration=production.start_configuration,
             goal_configuration=production.goal_configuration,
+            state_to_evaluate=target,
         )
+
+        # Extract the configuration history from the port watcher
+        # for the target system and port
+        port_watcher_for_target_port = watcher.get_port_watcher(
+            system_name=target_system,
+            port_name=target_port
+        )
+        port_data_dict = port_watcher_for_target_port.get_data_dictionary(production.diagram_context)
+        self.configuration_history = port_data_dict[target_port]
+
 
         return evaluator, simulator, production
         
@@ -88,16 +109,22 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
         # Create a dummy simulator and production to get the configuration history
         self.evaluator, self.simulator, self.production = self.create_dummy_offline_kinematic_motion_planning_evaluator()
 
-        self.brom_watcher_dir = self.evaluator.brom_watcher_dir
+        self.brom_watcher_dir = self.evaluator.watcher.options.base_directory
         
 
     def tearDown(self):
         # Clean up the temporary directory
-        for file in self.brom_watcher_dir.iterdir():
-            file.unlink()
-        self.brom_watcher_dir.rmdir()
+        shutil.rmtree(self.brom_watcher_dir)
 
     def test_load_data_for_evaluation(self):
+        # Production Should have been run by now.
+        # Data should be saved in the brom_watcher_dir, and the evaluator should be able to load it.
+
+        print(self.production.arm)
+        print(
+            self.production.plant.GetModelInstanceName(self.production.arm)
+        )
+
         # Test if the data is loaded correctly
         loaded_configuration_history = self.evaluator._load_data_for_evaluation()
         np.testing.assert_array_equal(loaded_configuration_history, self.configuration_history)
