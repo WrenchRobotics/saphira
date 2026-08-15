@@ -3,8 +3,8 @@ name: Saphira Collate and Comment
 description: Collate multiple saphira-run-evaluate result JSON files into a single combined PR comment.
 
 inputs:
-  results-directory:
-    description: Directory containing per-run result JSON files (searched recursively).
+  results-directories:
+    description: Newline-separated directories containing per-run result JSON files (searched recursively).
     required: true
   detected-parent:
     description: Detected parent production class name, for context in the comment.
@@ -13,7 +13,7 @@ inputs:
   comment-marker:
     description: Hidden HTML marker used to find and update the existing comment.
     required: false
-    default: '<!-- saphira-combined-metrics-comment -->'
+    default: '<\!-- saphira-combined-metrics-comment -->'
   github-token:
     description: Token used to create or update the PR comment.
     required: true
@@ -26,55 +26,11 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        results_dir="${{ inputs.results-directory }}"
-        summary="### Combined Saphira Metrics"
-
-        result_files=()
-        if [ -d "$results_dir" ]; then
-          while IFS= read -r file; do
-            result_files+=("$file")
-          done < <(find "$results_dir" -type f -name "*.json" | sort)
-        fi
-
-        if [ "${#result_files[@]}" -eq 0 ]; then
-          summary="$summary\n- No run-evaluate result files were found"
-        else
-          pass_count=0
-          fail_count=0
-          parse_error_count=0
-          for file in "${result_files[@]}"; do
-            parsed="$(python -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("production_class") or "unknown")+"\t"+str(d.get("exit_code","unknown")))' "$file" 2>/dev/null || true)"
-
-            if [ -z "$parsed" ]; then
-              prod="$(basename "$file" .json)"
-              code="parse_error"
-              status="failed"
-              fail_count=$((fail_count + 1))
-              parse_error_count=$((parse_error_count + 1))
-            else
-              prod="${parsed%%$'\t'*}"
-              code="${parsed#*$'\t'}"
-              if [ "$code" = "0" ]; then
-                status="passed"
-                pass_count=$((pass_count + 1))
-              else
-                status="failed"
-                fail_count=$((fail_count + 1))
-              fi
-            fi
-
-            summary="$summary\n- $prod: $status (exit_code=$code)"
-          done
-
-          summary="$summary\n\nTotals: $pass_count passed, $fail_count failed"
-          if [ "$parse_error_count" -gt 0 ]; then
-            summary="$summary\n- Warning: $parse_error_count result file(s) could not be parsed"
-          fi
-        fi
+        summary="$(RESULTS_DIRECTORIES='${{ inputs.results-directories }}' python .github/actions/saphira-collate-comment/collate_results.py)"
 
         {
           echo "summary<<EOF"
-          printf '%b\n' "$summary"
+          printf '%s\n' "$summary"
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
@@ -97,7 +53,7 @@ runs:
             `Trigger commit suffix: ${commitSuffix} (run attempt ${runAttempt})`,
             '',
             combinedSummary,
-          ].filter((line) => line !== null && line !== '').join('\n');
+          ].filter((line) => line \!== null && line \!== '').join('\n');
 
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
