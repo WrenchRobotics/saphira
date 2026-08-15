@@ -37,12 +37,16 @@ runs:
     - name: Upsert combined PR comment
       if: ${{ always() && github.event_name == 'pull_request' }}
       uses: actions/github-script@v7
+      env:
+        COMMENT_MARKER: ${{ inputs.comment-marker }}
+        DETECTED_PARENT: ${{ inputs.detected-parent }}
+        COMBINED_SUMMARY: ${{ steps.combined-summary.outputs.summary }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
-          const marker = `${{ inputs.comment-marker }}`;
-          const detectedParent = `${{ inputs.detected-parent }}`;
-          const combinedSummary = `${{ steps.combined-summary.outputs.summary }}` || '### Combined Saphira Metrics\n- Summary generation failed';
+          const marker = process.env.COMMENT_MARKER || '<!-- saphira-combined-metrics-comment -->';
+          const detectedParent = process.env.DETECTED_PARENT || '';
+          const combinedSummary = process.env.COMBINED_SUMMARY || '### Combined Saphira Metrics\n- Summary generation failed';
           const commitSuffix = context.sha.slice(-7);
           const runAttempt = process.env.GITHUB_RUN_ATTEMPT || '1';
 
