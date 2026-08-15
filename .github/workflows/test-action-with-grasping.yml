@@ -165,6 +165,8 @@ jobs:
         uses: ./.github/actions/saphira-collate-comment
         with:
           results-directories: productions/matrix-results
+          section-key: test-grasping-summary
+          section-heading: Grasping Example Summary
           python-version: ${{ env.PYTHON_VERSION }}
           detected-parent: ${{ needs.prepare.outputs.detected-parent }}
           allow-comment-update: >-

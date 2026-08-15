@@ -22,6 +22,14 @@ inputs:
     description: Hidden HTML marker used to find and update the existing comment.
     required: false
     default: '<!-- saphira-combined-metrics-comment -->'
+  section-key:
+    description: Optional stable key used to upsert a single section inside the shared PR comment.
+    required: false
+    default: ''
+  section-heading:
+    description: Optional section heading to render for this collate invocation.
+    required: false
+    default: ''
   github-token:
     description: Token used to create or update the PR comment.
     required: true
@@ -63,6 +71,9 @@ runs:
       env:
         COMMENT_MARKER: ${{ inputs.comment-marker }}
         DETECTED_PARENT: ${{ inputs.detected-parent }}
+        SECTION_KEY: ${{ inputs.section-key }}
+        SECTION_HEADING: ${{ inputs.section-heading }}
+        RESULTS_DIRECTORIES: ${{ inputs.results-directories }}
         COMBINED_SUMMARY: ${{ steps.combined-summary.outputs.summary }}
       with:
         github-token: ${{ inputs.github-token }}
@@ -72,15 +83,29 @@ runs:
           const combinedSummary = process.env.COMBINED_SUMMARY || '### Combined Saphira Metrics\n- Summary generation failed';
           const commitSuffix = context.sha.slice(-7);
           const runAttempt = process.env.GITHUB_RUN_ATTEMPT || '1';
+          const requestedSectionKey = (process.env.SECTION_KEY || '').trim();
+          const fallbackSectionKey = (process.env.RESULTS_DIRECTORIES || '').trim() || 'default';
+          const rawSectionKey = requestedSectionKey || fallbackSectionKey;
+          const normalizedSectionKey = rawSectionKey
+            .toLowerCase()
+            .replace(/[^a-z0-9._-]+/g, '-')
+            .replace(/^-+|-+$/g, '') || 'default';
+          const sectionHeading = (process.env.SECTION_HEADING || '').trim() || `Combined Saphira Metrics (${normalizedSectionKey})`;
+          const sectionStart = `<!-- saphira-collate-section:${normalizedSectionKey}:start -->`;
+          const sectionEnd = `<!-- saphira-collate-section:${normalizedSectionKey}:end -->`;
 
-          const body = [
-            marker,
-            'Saphira combined run complete.',
+          const sectionBody = [
+            sectionStart,
+            `## ${sectionHeading}`,
             detectedParent ? `Detected production parent: ${detectedParent}` : '',
             `Trigger commit suffix: ${commitSuffix} (run attempt ${runAttempt})`,
             '',
             combinedSummary,
+            sectionEnd,
           ].filter((line) => line !== null && line !== '').join('\n');
+
+          const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const sectionRegex = new RegExp(`${escapeRegex(sectionStart)}[\\s\\S]*?${escapeRegex(sectionEnd)}`, 'm');
 
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
@@ -94,6 +119,14 @@ runs:
           );
 
           if (existing) {
+            let body = (existing.body || '').trimEnd();
+
+            if (sectionRegex.test(body)) {
+              body = body.replace(sectionRegex, sectionBody);
+            } else {
+              body = [body, '', sectionBody].filter((line) => line !== '').join('\n');
+            }
+
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -101,6 +134,14 @@ runs:
               body,
             });
           } else {
+            const body = [
+              marker,
+              '# Saphira Combined Run Results',
+              'Each section below corresponds to one collate invocation in this workflow.',
+              '',
+              sectionBody,
+            ].join('\n');
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,

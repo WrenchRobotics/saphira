@@ -77,6 +77,8 @@ jobs:
         uses: ./.github/actions/saphira-collate-comment
         with:
           results-directories: productions/matrix-results
+          section-key: saphira-v1-matrix
+          section-heading: Saphira v1 Matrix Results
           python-version: ${{ env.PYTHON_VERSION }}
           detected-parent: ${{ needs.prepare.outputs.detected-parent }}
           allow-comment-update: >-
