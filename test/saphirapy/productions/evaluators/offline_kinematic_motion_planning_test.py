@@ -85,9 +85,7 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
 
         # - Create the evaluator
         evaluator = OfflineKinematicMotionPlanningEvaluator(
-            watcher=production.watcher,
-            start_configuration=production.start_configuration,
-            goal_configuration=production.goal_configuration,
+            production=production,
             state_to_evaluate=target,
         )
 
@@ -109,7 +107,7 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
         # Create a dummy simulator and production to get the configuration history
         self.evaluator, self.simulator, self.production = self.create_dummy_offline_kinematic_motion_planning_evaluator()
 
-        self.brom_watcher_dir = self.evaluator.watcher.options.base_directory
+        self.brom_watcher_dir = self.production.watcher.options.base_directory
         
 
     def tearDown(self):
@@ -128,6 +126,18 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
         # Test if the data is loaded correctly
         loaded_configuration_history = self.evaluator._load_data_for_evaluation()
         np.testing.assert_array_equal(loaded_configuration_history, self.configuration_history)
+
+    def test_calculate_cartesian_space_length_of_plan_is_greater_than_50cm(self):
+        # Use the plan generated in setUp and ensure the Cartesian path is meaningful.
+        cartesian_length_m = self.evaluator.calculate_cartesian_space_length_of_plan(
+            self.configuration_history
+        )
+
+        self.assertGreater(
+            cartesian_length_m,
+            0.5,
+            msg=f"Expected Cartesian path length > 0.5 m, got {cartesian_length_m:.3f} m",
+        )
 
 if __name__ == "__main__":
     unittest.main()
