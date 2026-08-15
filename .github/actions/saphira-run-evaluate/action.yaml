@@ -67,12 +67,12 @@ runs:
 
         if [ ! -f "$result_json_path" ]; then
           cat > "$result_json_path" <<EOF
-          {
-            "production_class": "${{ inputs.production-class }}",
-            "restaged_file": "",
-            "exit_code": $exit_code
-          }
-          EOF
+        {
+          "production_class": "${{ inputs.production-class }}",
+          "restaged_file": "",
+          "exit_code": $exit_code
+        }
+        EOF
         fi
 
         metrics_body="### Variant Metrics\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code"
