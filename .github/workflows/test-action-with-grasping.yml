@@ -1,32 +1,135 @@
 name: Test Action with a Brom Drake Grasping Production
 on: [pull_request, deployment]
+
 jobs:
-  run:
+  prepare:
     runs-on: ubuntu-latest
-    name: Testing Grasping1 Example with Sapphira Action
-    strategy:
-      matrix:
-        python_version: [ '3.10']
+    name: Prepare detection for grasping example
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      example-file: ${{ steps.detect.outputs.example-file }}
+      detected-parent: ${{ steps.detect.outputs.detected-production-parent }}
+      related-productions-json: ${{ steps.detect.outputs.related-productions-json }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # Fetch all history for git tag
-      - name: Set up Python ${{ matrix.python_version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python_version }}
-      - name: Install dependencies
-        run: pip install brom_drake
-      - name: Get Previous Tag
-        id: previous_tag
-        uses: "WyriHaximus/github-action-get-previous-tag@v1"
-        with:
-          fallback: 0.0.1 # Optional fallback tag to use when no tag can be found
-          #workingDirectory: another/path/where/a/git/repo/is/checked/out # Optional alternative working directory
-      - name: Run Sapphira Action
-        id: run-sapphira
-        uses: ./
+          fetch-depth: 0
+
+      - name: Detect related productions
+        id: detect
+        uses: ./.github/actions/saphira-detect
         with:
           path-to-example-run: src/examples/grasping1/
-      
+
+  restage-and-run:
+    needs: prepare
+    if: needs.prepare.outputs.related-productions-json != '[]'
+    runs-on: ubuntu-latest
+    name: Run related productions matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        production: ${{ fromJSON(needs.prepare.outputs.related-productions-json) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Run and evaluate production variant
+        id: run-evaluate
+        uses: ./.github/actions/saphira-run-evaluate
+        with:
+          target-file: ${{ needs.prepare.outputs.example-file }}
+          production-class: ${{ matrix.production }}
+
+      - name: Upload matrix result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-result-${{ matrix.production }}
+          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+
+  run-no-related-fallback:
+    needs: prepare
+    if: needs.prepare.outputs.related-productions-json == '[]'
+    runs-on: ubuntu-latest
+    name: Run fallback when no related productions
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.14.2'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install brom_drake
+
+      - name: Run example and produce fallback result
+        id: fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          result_dir="productions/matrix-results"
+          mkdir -p "$result_dir"
+          result_json_path="$result_dir/no-related-productions.json"
+
+          start_epoch="$(python -c 'import time; print(time.time())')"
+          set +e
+          python "${{ needs.prepare.outputs.example-file }}"
+          exit_code=$?
+          set -e
+          end_epoch="$(python -c 'import time; print(time.time())')"
+          duration_seconds="$(python -c "start=float('$start_epoch'); end=float('$end_epoch'); print(f'{max(0.0, end-start):.3f}')")"
+
+          RESULT_JSON_PATH="$result_json_path" \
+          EXIT_CODE="$exit_code" \
+          DURATION_SECONDS="$duration_seconds" \
+          python -c 'import json, os; from pathlib import Path; p = Path(os.environ["RESULT_JSON_PATH"]); payload = {"production_class": "NO_RELATED_PRODUCTIONS", "restaged_file": "", "exit_code": int(os.environ["EXIT_CODE"]), "duration_seconds": float(os.environ["DURATION_SECONDS"])}; p.write_text(json.dumps(payload, indent=2))'
+
+          echo "result-json-path=$result_json_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload fallback result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: no-related-result
+          path: ${{ steps.fallback.outputs.result-json-path }}
+
+  summarize:
+    needs: [prepare, restage-and-run, run-no-related-fallback]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download matrix result artifacts
+        if: needs.prepare.outputs.related-productions-json != '[]'
+        uses: actions/download-artifact@v4
+        with:
+          path: productions/matrix-results
+
+      - name: Download fallback result artifact
+        if: needs.prepare.outputs.related-productions-json == '[]'
+        uses: actions/download-artifact@v4
+        with:
+          name: no-related-result
+          path: productions/matrix-results
+
+      - name: Collate results and comment on PR
+        if: always()
+        uses: ./.github/actions/saphira-collate-comment
+        with:
+          results-directories: productions/matrix-results
+          detected-parent: ${{ needs.prepare.outputs.detected-parent }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
