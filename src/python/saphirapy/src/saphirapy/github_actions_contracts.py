@@ -77,6 +77,7 @@ def build_summary(results_directories: str) -> str:
     parse_error_count = 0
 
     rows: list[tuple[str, str, str, str]] = []
+    metric_lines: list[str] = []
     for file_path in files:
         production = file_path.stem
         exit_code = "parse_error"
@@ -88,6 +89,13 @@ def build_summary(results_directories: str) -> str:
             production = str(payload.get("production_class") or production)
             exit_code = str(payload.get("exit_code", "unknown"))
             duration_seconds = str(payload.get("duration_seconds", "n/a"))
+            metrics_payload = payload.get("metrics")
+            if isinstance(metrics_payload, dict) and metrics_payload:
+                metric_summary = ", ".join(
+                    f"{metric_name}={metric_value}"
+                    for metric_name, metric_value in metrics_payload.items()
+                )
+                metric_lines.append(f"- {production}: {metric_summary}")
         except Exception:
             parse_error_count += 1
 
@@ -106,6 +114,10 @@ def build_summary(results_directories: str) -> str:
 
     lines.append("")
     lines.append(f"Totals: {pass_count} passed, {fail_count} failed")
+    if metric_lines:
+        lines.append("")
+        lines.append("Additional Metrics:")
+        lines.extend(metric_lines)
     if parse_error_count:
         lines.append(f"Warning: {parse_error_count} result file(s) could not be parsed")
 

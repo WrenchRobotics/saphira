@@ -139,5 +139,12 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
             msg=f"Expected Cartesian path length > 0.5 m, got {cartesian_length_m:.3f} m",
         )
 
+    def test_evaluate_returns_expected_metric_keys(self):
+        metrics = self.evaluator.evaluate()
+
+        self.assertIn("Final Configuration Error", metrics)
+        self.assertIn("Joint Space Length of Plan", metrics)
+        self.assertIn("Cartesian Space Length of Plan", metrics)
+
 if __name__ == "__main__":
     unittest.main()

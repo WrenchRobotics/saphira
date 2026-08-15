@@ -1,12 +1,91 @@
 import argparse
 import ast
+import importlib.util
+import inspect
 import json
-import subprocess
 import sys
+import traceback
+import uuid
 from pathlib import Path
+from types import ModuleType
 
 import brom_drake.productions.all as brom_all
+from saphirapy.productions.evaluators.offline_kinematic_motion_planning import (
+    OfflineKinematicMotionPlanningEvaluator,
+)
 from saphirapy.restaging import BromRestagingManager
+
+
+def _append_production_return_to_main(tree: ast.AST) -> ast.AST:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "main":
+            node.body.append(ast.parse("return locals().get('production')").body[0])
+            return ast.fix_missing_locations(tree)
+
+    return tree
+
+
+def _load_module_from_path(module_path: Path) -> ModuleType:
+    module_name = f"_saphira_restaged_{module_path.stem}_{uuid.uuid4().hex}"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load module from {module_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _invoke_restaged_main(restaged_module: ModuleType):
+    main_fn = getattr(restaged_module, "main", None)
+    if not callable(main_fn):
+        raise ValueError("Restaged module must define a callable main()")
+
+    signature = inspect.signature(main_fn)
+    kwargs = {}
+    for name, parameter in signature.parameters.items():
+        if name == "meshcat_port_number":
+            kwargs[name] = -1
+            continue
+
+        if parameter.default is inspect._empty and parameter.kind not in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            raise ValueError(
+                f"Unsupported restaged main() parameter {name!r}; only defaulted parameters are supported."
+            )
+
+    return main_fn(**kwargs)
+
+
+def _run_restaged_module(restaged_file: Path):
+    try:
+        restaged_module = _load_module_from_path(restaged_file)
+        return _invoke_restaged_main(restaged_module), 0
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else 1 if exc.code else 0
+        return None, int(exit_code)
+    except Exception:
+        traceback.print_exc()
+        return None, 1
+
+
+def _collect_additional_metrics(production) -> dict[str, float]:
+    if production is None or not isinstance(
+        production, brom_all.KinematicMotionPlanningProduction
+    ):
+        return {}
+
+    watcher = getattr(production, "watcher", None)
+    if watcher is not None:
+        if hasattr(watcher, "_save_figures"):
+            watcher._save_figures()
+        if hasattr(watcher, "_save_raw_data"):
+            watcher._save_raw_data()
+
+    metrics = OfflineKinematicMotionPlanningEvaluator(production=production).evaluate()
+    return {metric_name: float(metric_value) for metric_name, metric_value in metrics.items()}
 
 
 def restage_and_run_one(target_file: Path, production_class_name: str, output_dir: Path) -> dict:
@@ -26,17 +105,24 @@ def restage_and_run_one(target_file: Path, production_class_name: str, output_di
         raise ValueError(f"Could not resolve production class named {production_class_name}.")
 
     new_tree = manager.replace_production_in_ast(parsed_tree, production_ref, alt_production)
+    new_tree = _append_production_return_to_main(new_tree)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     restaged_file = output_dir / f"{target_file.stem}_{production_class_name}.py"
     restaged_file.write_text(ast.unparse(new_tree))
 
-    completed = subprocess.run([sys.executable, str(restaged_file)], check=False)
-    return {
+    production, exit_code = _run_restaged_module(restaged_file)
+    result = {
         "production_class": production_class_name,
         "restaged_file": str(restaged_file),
-        "exit_code": int(completed.returncode),
+        "exit_code": int(exit_code),
     }
+
+    metrics = _collect_additional_metrics(production)
+    if metrics:
+        result["metrics"] = metrics
+
+    return result
 
 
 def main() -> int:

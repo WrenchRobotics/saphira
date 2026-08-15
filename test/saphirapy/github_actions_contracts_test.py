@@ -67,6 +67,34 @@ class TestGitHubActionContracts(unittest.TestCase):
             self.assertNotIn("productions/restaged/shelf_planning1.py", summary)
             self.assertIn("Totals: 1 passed, 1 failed", summary)
 
+    def test_summary_includes_additional_metrics_when_present(self):
+        with TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            result_path = tmp_path / "matrix-results" / "ChemLab1.json"
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+            result_path.write_text(
+                json.dumps(
+                    {
+                        "production_class": "ChemLab1",
+                        "restaged_file": "productions/restaged/chem_lab1.py",
+                        "exit_code": 0,
+                        "duration_seconds": 1.5,
+                        "metrics": {
+                            "Final Configuration Error": 0.01,
+                            "Joint Space Length of Plan": 2.5,
+                        },
+                    }
+                )
+            )
+
+            summary = build_summary(str(result_path.parent))
+
+            self.assertIn("Additional Metrics:", summary)
+            self.assertIn(
+                "- ChemLab1: Final Configuration Error=0.01, Joint Space Length of Plan=2.5",
+                summary,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

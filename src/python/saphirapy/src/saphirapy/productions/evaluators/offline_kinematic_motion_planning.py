@@ -1,7 +1,6 @@
 from brom_drake.watchers.diagram_target import DiagramTarget
 from brom_drake.watchers.diagram_watcher import DiagramWatcher
 from brom_drake.productions.types.motion_planning.offline.kinematic import KinematicMotionPlanningProduction as OfflineKinematicMotionPlanningProduction
-from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
 from typing import Dict, List, Tuple
@@ -74,10 +73,11 @@ class OfflineKinematicMotionPlanningEvaluator:
         return raw_data_files
 
     def evaluate(self, tolerance: float = 1e-5) -> Dict[str, float]:
+        configuration_history = self._load_data_for_evaluation()
         return {
-            "Final Configuration Error": self.calculate_final_configuration_error(self.configuration_history),
-            "Joint Space Length of Plan": self.calculate_joint_space_length_of_plan(self.configuration_history),
-            "Cartesian Space Length of Plan": self.calculate_cartesian_space_length_of_plan(self.configuration_history),
+            "Final Configuration Error": self.calculate_final_configuration_error(configuration_history),
+            "Joint Space Length of Plan": self.calculate_joint_space_length_of_plan(configuration_history),
+            "Cartesian Space Length of Plan": self.calculate_cartesian_space_length_of_plan(configuration_history),
         }
 
     def extract_system_and_port_name_from_file_name(self, file_name: str) -> Tuple[str, str]:
