@@ -72,6 +72,6 @@ jobs:
         if: always()
         uses: ./.github/actions/saphira-collate-comment
         with:
-          results-directory: productions/matrix-results
+          results-directories: productions/matrix-results
           detected-parent: ${{ needs.prepare.outputs.detected-parent }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

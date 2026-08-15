@@ -13,7 +13,7 @@ inputs:
   comment-marker:
     description: Hidden HTML marker used to find and update the existing comment.
     required: false
-    default: '<\!-- saphira-combined-metrics-comment -->'
+    default: '<!-- saphira-combined-metrics-comment -->'
   github-token:
     description: Token used to create or update the PR comment.
     required: true
@@ -53,7 +53,7 @@ runs:
             `Trigger commit suffix: ${commitSuffix} (run attempt ${runAttempt})`,
             '',
             combinedSummary,
-          ].filter((line) => line \!== null && line \!== '').join('\n');
+          ].filter((line) => line !== null && line !== '').join('\n');
 
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,

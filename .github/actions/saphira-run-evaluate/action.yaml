@@ -56,6 +56,8 @@ runs:
         mkdir -p "${{ inputs.result-directory }}"
         result_json_path="${{ inputs.result-directory }}/${{ inputs.production-class }}.json"
 
+        start_epoch="$(python -c 'import time; print(time.time())')"
+
         set +e
         saphira-restage-and-run-production \
           --target-file "${{ inputs.target-file }}" \
@@ -65,17 +67,17 @@ runs:
         exit_code=$?
         set -e
 
-        if [ ! -f "$result_json_path" ]; then
-          cat > "$result_json_path" <<EOF
-        {
-          "production_class": "${{ inputs.production-class }}",
-          "restaged_file": "",
-          "exit_code": $exit_code
-        }
-        EOF
-        fi
+        end_epoch="$(python -c 'import time; print(time.time())')"
+        duration_seconds="$(python -c "start=float('$start_epoch'); end=float('$end_epoch'); print(f'{max(0.0, end-start):.3f}')")"
 
-        metrics_body="### Variant Metrics\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code"
+        python .github/actions/saphira-run-evaluate/finalize_result.py \
+          "$result_json_path" \
+          "${{ inputs.production-class }}" \
+          "$exit_code" \
+          "$duration_seconds" \
+          ""
+
+        metrics_body="### Variant Metrics\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code\n- Duration (s): $duration_seconds"
 
         echo "result-json-path=$result_json_path" >> "$GITHUB_OUTPUT"
         echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
