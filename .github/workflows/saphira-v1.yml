@@ -59,79 +59,18 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
       - name: Download matrix result artifacts
         if: needs.prepare.outputs.related-productions-json != '[]'
         uses: actions/download-artifact@v4
         with:
           path: productions/matrix-results
 
-      - name: Build matrix summary markdown
-        id: matrix-summary
-        shell: bash
-        run: |
-          set -euo pipefail
-          summary="### Matrix Restage Results"
-          if [ "${{ needs.prepare.outputs.related-productions-json }}" = "[]" ]; then
-            summary="$summary\n- No related productions detected for matrix fan-out"
-          elif ls productions/matrix-results/**/**/*.json >/dev/null 2>&1; then
-            while IFS= read -r file; do
-              prod="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["production_class"])' "$file")"
-              code="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["exit_code"])' "$file")"
-              summary="$summary\n- $prod: exit_code=$code"
-            done < <(find productions/matrix-results -type f -name "*.json" | sort)
-          else
-            summary="$summary\n- Matrix job did not produce result files"
-          fi
-
-          {
-            echo "matrix-summary<<EOF"
-            printf '%b\n' "$summary"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Comment metrics on PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+      - name: Collate results and comment on PR
+        uses: ./.github/actions/saphira-collate-comment
         with:
+          results-directory: productions/matrix-results
+          detected-parent: ${{ needs.prepare.outputs.detected-parent }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const marker = '<!-- saphira-v1-metrics-comment -->';
-            const detectedParent = `${{ needs.prepare.outputs.detected-parent }}`;
-            const matrixSummary = `${{ steps.matrix-summary.outputs.matrix-summary }}`;
-
-            const body = [
-              marker,
-              'Saphira run complete.',
-              `Detected production parent: ${detectedParent}`,
-              '',
-              matrixSummary,
-              '',
-              'Custom note: grasping regression check passed.'
-            ].join('\n');
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              per_page: 100,
-            });
-
-            const existing = comments.find((c) =>
-              typeof c.body === 'string' && c.body.includes(marker)
-            );
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body,
-              });
-            }

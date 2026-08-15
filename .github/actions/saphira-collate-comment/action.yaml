@@ -1,0 +1,111 @@
+name: Saphira Collate and Comment
+
+description: Collate multiple saphira-run-evaluate result JSON files into a single combined PR comment.
+
+inputs:
+  results-directory:
+    description: Directory containing per-run result JSON files (searched recursively).
+    required: true
+  detected-parent:
+    description: Detected parent production class name, for context in the comment.
+    required: false
+    default: ''
+  comment-marker:
+    description: Hidden HTML marker used to find and update the existing comment.
+    required: false
+    default: '<!-- saphira-combined-metrics-comment -->'
+  github-token:
+    description: Token used to create or update the PR comment.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Build combined summary
+      id: combined-summary
+      shell: bash
+      run: |
+        set -euo pipefail
+        results_dir="${{ inputs.results-directory }}"
+        summary="### Combined Saphira Metrics"
+
+        result_files=()
+        if [ -d "$results_dir" ]; then
+          while IFS= read -r file; do
+            result_files+=("$file")
+          done < <(find "$results_dir" -type f -name "*.json" | sort)
+        fi
+
+        if [ "${#result_files[@]}" -eq 0 ]; then
+          summary="$summary\n- No run-evaluate result files were found"
+        else
+          pass_count=0
+          fail_count=0
+          for file in "${result_files[@]}"; do
+            prod="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("production_class",""))' "$file")"
+            code="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("exit_code",""))' "$file")"
+            if [ "$code" = "0" ]; then
+              status="passed"
+              pass_count=$((pass_count + 1))
+            else
+              status="failed"
+              fail_count=$((fail_count + 1))
+            fi
+            summary="$summary\n- $prod: $status (exit_code=$code)"
+          done
+          summary="$summary\n\nTotals: $pass_count passed, $fail_count failed"
+        fi
+
+        {
+          echo "summary<<EOF"
+          printf '%b\n' "$summary"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Upsert combined PR comment
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const marker = `${{ inputs.comment-marker }}`;
+          const detectedParent = `${{ inputs.detected-parent }}`;
+          const combinedSummary = `${{ steps.combined-summary.outputs.summary }}`;
+          const commitSuffix = context.sha.slice(-7);
+          const runAttempt = process.env.GITHUB_RUN_ATTEMPT || '1';
+
+          const body = [
+            marker,
+            'Saphira combined run complete.',
+            detectedParent ? `Detected production parent: ${detectedParent}` : '',
+            `Trigger commit suffix: ${commitSuffix} (run attempt ${runAttempt})`,
+            '',
+            combinedSummary,
+          ].filter((line) => line !== null).join('\n');
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.payload.pull_request.number,
+            per_page: 100,
+          });
+
+          const existing = comments.find((c) =>
+            typeof c.body === 'string' && c.body.includes(marker)
+          );
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+          }
