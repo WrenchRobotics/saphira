@@ -77,7 +77,7 @@ def build_summary(results_directories: str) -> str:
     parse_error_count = 0
 
     rows: list[tuple[str, str, str, str]] = []
-    metric_lines: list[str] = []
+    metric_rows: list[tuple[str, str, str]] = []
     for file_path in files:
         production = file_path.stem
         exit_code = "parse_error"
@@ -91,11 +91,8 @@ def build_summary(results_directories: str) -> str:
             duration_seconds = str(payload.get("duration_seconds", "n/a"))
             metrics_payload = payload.get("metrics")
             if isinstance(metrics_payload, dict) and metrics_payload:
-                metric_summary = ", ".join(
-                    f"{metric_name}={metric_value}"
-                    for metric_name, metric_value in metrics_payload.items()
-                )
-                metric_lines.append(f"- {production}: {metric_summary}")
+                for metric_name, metric_value in metrics_payload.items():
+                    metric_rows.append((production, str(metric_name), str(metric_value)))
         except Exception:
             parse_error_count += 1
 
@@ -114,10 +111,15 @@ def build_summary(results_directories: str) -> str:
 
     lines.append("")
     lines.append(f"Totals: {pass_count} passed, {fail_count} failed")
-    if metric_lines:
+    if metric_rows:
         lines.append("")
         lines.append("Additional Metrics:")
-        lines.extend(metric_lines)
+        lines.append("| Production | Metric | Value |")
+        lines.append("| --- | --- | ---: |")
+        for production, metric_name, metric_value in metric_rows:
+            safe_metric_name = metric_name.replace("|", "\\|")
+            safe_metric_value = metric_value.replace("|", "\\|")
+            lines.append(f"| {production} | {safe_metric_name} | {safe_metric_value} |")
     if parse_error_count:
         lines.append(f"Warning: {parse_error_count} result file(s) could not be parsed")
 
