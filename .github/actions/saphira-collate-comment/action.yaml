@@ -41,19 +41,35 @@ runs:
         else
           pass_count=0
           fail_count=0
+          parse_error_count=0
           for file in "${result_files[@]}"; do
-            prod="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("production_class",""))' "$file")"
-            code="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("exit_code",""))' "$file")"
-            if [ "$code" = "0" ]; then
-              status="passed"
-              pass_count=$((pass_count + 1))
-            else
+            parsed="$(python -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("production_class") or "unknown")+"\t"+str(d.get("exit_code","unknown")))' "$file" 2>/dev/null || true)"
+
+            if [ -z "$parsed" ]; then
+              prod="$(basename "$file" .json)"
+              code="parse_error"
               status="failed"
               fail_count=$((fail_count + 1))
+              parse_error_count=$((parse_error_count + 1))
+            else
+              prod="${parsed%%$'\t'*}"
+              code="${parsed#*$'\t'}"
+              if [ "$code" = "0" ]; then
+                status="passed"
+                pass_count=$((pass_count + 1))
+              else
+                status="failed"
+                fail_count=$((fail_count + 1))
+              fi
             fi
+
             summary="$summary\n- $prod: $status (exit_code=$code)"
           done
+
           summary="$summary\n\nTotals: $pass_count passed, $fail_count failed"
+          if [ "$parse_error_count" -gt 0 ]; then
+            summary="$summary\n- Warning: $parse_error_count result file(s) could not be parsed"
+          fi
         fi
 
         {
@@ -63,14 +79,14 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - name: Upsert combined PR comment
-      if: github.event_name == 'pull_request'
+      if: ${{ always() && github.event_name == 'pull_request' }}
       uses: actions/github-script@v7
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const marker = `${{ inputs.comment-marker }}`;
           const detectedParent = `${{ inputs.detected-parent }}`;
-          const combinedSummary = `${{ steps.combined-summary.outputs.summary }}`;
+          const combinedSummary = `${{ steps.combined-summary.outputs.summary }}` || '### Combined Saphira Metrics\n- Summary generation failed';
           const commitSuffix = context.sha.slice(-7);
           const runAttempt = process.env.GITHUB_RUN_ATTEMPT || '1';
 
@@ -81,7 +97,7 @@ runs:
             `Trigger commit suffix: ${commitSuffix} (run attempt ${runAttempt})`,
             '',
             combinedSummary,
-          ].filter((line) => line !== null).join('\n');
+          ].filter((line) => line !== null && line !== '').join('\n');
 
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,

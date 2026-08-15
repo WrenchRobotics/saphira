@@ -69,6 +69,7 @@ jobs:
           path: productions/matrix-results
 
       - name: Collate results and comment on PR
+        if: always()
         uses: ./.github/actions/saphira-collate-comment
         with:
           results-directory: productions/matrix-results
