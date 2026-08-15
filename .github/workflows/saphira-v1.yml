@@ -69,9 +69,14 @@ jobs:
           path: productions/matrix-results
 
       - name: Collate results and comment on PR
-        if: always()
         uses: ./.github/actions/saphira-collate-comment
         with:
           results-directories: productions/matrix-results
           detected-parent: ${{ needs.prepare.outputs.detected-parent }}
+          allow-comment-update: >-
+            ${{
+              needs.prepare.result == 'success' &&
+              needs.prepare.outputs.related-productions-json != '[]' &&
+              needs.restage-and-run.result == 'success'
+            }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
