@@ -1,6 +1,7 @@
-import json
 import sys
 from pathlib import Path
+
+from saphirapy.github_actions_contracts import finalize_result_payload
 
 
 def main() -> int:
@@ -15,20 +16,13 @@ def main() -> int:
     duration_seconds = float(sys.argv[4])
     restaged_file_default = sys.argv[5]
 
-    payload = {}
-    if result_json_path.exists():
-        try:
-            payload = json.loads(result_json_path.read_text())
-        except Exception:
-            payload = {}
-
-    payload.setdefault("production_class", production_class)
-    payload.setdefault("restaged_file", restaged_file_default)
-    payload["exit_code"] = exit_code
-    payload["duration_seconds"] = duration_seconds
-
-    result_json_path.parent.mkdir(parents=True, exist_ok=True)
-    result_json_path.write_text(json.dumps(payload, indent=2))
+    finalize_result_payload(
+        result_json_path,
+        production_class,
+        exit_code,
+        duration_seconds,
+        restaged_file_default,
+    )
     return 0
 
 

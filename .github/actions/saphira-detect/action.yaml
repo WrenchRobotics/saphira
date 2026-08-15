@@ -66,9 +66,5 @@ runs:
       run: |
         set -euo pipefail
         detection_json="$(saphira-detect-production-map "${{ steps.locate-example.outputs.example-file }}")"
-        detected_parent="$(DETECTION_JSON="$detection_json" python -c 'import json, os; print(json.loads(os.environ["DETECTION_JSON"]).get("detected_parent_class") or "UNMAPPED")')"
-        related_json="$(DETECTION_JSON="$detection_json" python -c 'import json, os; print(json.dumps(json.loads(os.environ["DETECTION_JSON"]).get("related_productions", [])))')"
-
         echo "Detection payload: $detection_json"
-        echo "detected-parent=$detected_parent" >> "$GITHUB_OUTPUT"
-        echo "related-productions-json=$related_json" >> "$GITHUB_OUTPUT"
+        python .github/actions/saphira-detect/emit_outputs.py "$detection_json" "$GITHUB_OUTPUT"

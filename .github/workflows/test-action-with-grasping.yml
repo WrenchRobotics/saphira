@@ -88,10 +88,12 @@ jobs:
           end_epoch="$(python -c 'import time; print(time.time())')"
           duration_seconds="$(python -c "start=float('$start_epoch'); end=float('$end_epoch'); print(f'{max(0.0, end-start):.3f}')")"
 
-          RESULT_JSON_PATH="$result_json_path" \
-          EXIT_CODE="$exit_code" \
-          DURATION_SECONDS="$duration_seconds" \
-          python -c 'import json, os; from pathlib import Path; p = Path(os.environ["RESULT_JSON_PATH"]); payload = {"production_class": "NO_RELATED_PRODUCTIONS", "restaged_file": "", "exit_code": int(os.environ["EXIT_CODE"]), "duration_seconds": float(os.environ["DURATION_SECONDS"])}; p.write_text(json.dumps(payload, indent=2))'
+          python .github/actions/saphira-run-evaluate/finalize_result.py \
+            "$result_json_path" \
+            "NO_RELATED_PRODUCTIONS" \
+            "$exit_code" \
+            "$duration_seconds" \
+            ""
 
           echo "result-json-path=$result_json_path" >> "$GITHUB_OUTPUT"
 
