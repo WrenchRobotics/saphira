@@ -9,7 +9,7 @@ inputs:
   production-class:
     description: Production class name to restage into the target file.
     required: true
-  python_version:
+  python-version:
     description: Python version to use.
     required: false
     default: '3.14.2'
@@ -39,7 +39,7 @@ runs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ inputs.python_version }}
+        python-version: ${{ inputs.python-version }}
 
     - name: Install dependencies
       shell: bash
