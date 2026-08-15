@@ -6,6 +6,10 @@ inputs:
   results-directories:
     description: Newline-separated directories containing per-run result JSON files (searched recursively).
     required: true
+  python_version:
+    description: Python version to use.
+    required: false
+    default: '3.14.2'
   detected-parent:
     description: Detected parent production class name, for context in the comment.
     required: false
@@ -25,6 +29,20 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Set up Python
+      if: ${{ inputs.allow-comment-update == 'true' }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Install dependencies
+      if: ${{ inputs.allow-comment-update == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        pip install brom_drake
+        pip install -e src/python/saphirapy
+
     - name: Build combined summary
       id: combined-summary
       if: ${{ inputs.allow-comment-update == 'true' }}
