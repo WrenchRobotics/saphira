@@ -27,5 +27,11 @@ if __name__ == "__main__":
         keywords=["drake", "robotics", "testing", "logging"],
         classifiers=[
             "Programming Language :: Python :: 3",
-        ]
+        ],
+        entry_points={
+            "console_scripts": [
+                "saphira-detect-production-map=saphirapy.detect_production_map:main",
+                "saphira-restage-and-run-production=saphirapy.restage_and_run_production:main",
+            ],
+        },
     )

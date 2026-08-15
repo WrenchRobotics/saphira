@@ -21,6 +21,15 @@ outputs:
   output-data-directory: # id of output
     description: 'The directory where the output data is stored.'
     # value: '${{ steps.run-sapphira.outputs.output-data-directory }}' # TODO(Kwesi): Uncomment this line when we know that the output directory is set in a step.
+  detected-production-parent:
+    description: 'Detected parent production class name from RELATED_PRODUCTIONS.'
+    value: '${{ steps.detect-production-map.outputs.detected-parent }}'
+  related-productions-json:
+    description: 'JSON array of related production class names for matrix fan-out.'
+    value: '${{ steps.detect-production-map.outputs.related-productions-json }}'
+  metrics-markdown:
+    description: 'Markdown summary emitted by evaluation step.'
+    value: '${{ steps.evaluate.outputs.metrics-markdown }}'
 runs:
   using: "composite"
   steps:
@@ -43,8 +52,10 @@ runs:
       run: >-
         sed -i "s/{{VERSION_PLACEHOLDER}}/${{ steps.previous_tag.outputs.tag }}/g" src/python/setup.py
     - name: Locate the example run
+      id: locate-example
       shell: bash
       run: |
+       set -euo pipefail
        echo "The example run is located at ${{ inputs.path-to-example-run }}"
        matching_files=()
        while read file; do
@@ -56,9 +67,117 @@ runs:
        done < <(find ${{ inputs.path-to-example-run }} -type f -name "*.py")
        echo "Matching files: ${matching_files[@]}"
        first_file="${matching_files[0]}"
+       if [ -z "$first_file" ]; then
+         echo "No matching production file was found in ${{ inputs.path-to-example-run }}"
+         exit 1
+       fi
        echo "Selecting the first Python file that contains productions in it: $first_file" 
+       echo "example-file=$first_file" >> "$GITHUB_OUTPUT"
     - name: Install saphira_py library
       shell: bash
       run: |
         echo "Installing saphira_py library"
         cd src/python && pip install -e . && cd -
+    - name: Detect production mapping
+      id: detect-production-map
+      shell: bash
+      run: |
+        set -euo pipefail
+        detection_json="$(saphira-detect-production-map "${{ steps.locate-example.outputs.example-file }}")"
+        detected_parent="$(DETECTION_JSON="$detection_json" python -c 'import json, os; print(json.loads(os.environ["DETECTION_JSON"]).get("detected_parent_class") or "UNMAPPED")')"
+        related_json="$(DETECTION_JSON="$detection_json" python -c 'import json, os; print(json.dumps(json.loads(os.environ["DETECTION_JSON"]).get("related_productions", [])))')"
+
+        echo "Detection payload: $detection_json"
+        echo "Detected RELATED_PRODUCTIONS parent: $detected_parent"
+        echo "related-productions-json=$related_json" >> "$GITHUB_OUTPUT"
+        echo "detected-parent=$detected_parent" >> "$GITHUB_OUTPUT"
+    - name: Run selected example
+      shell: bash
+      run: |
+        set -euo pipefail
+        python "${{ steps.locate-example.outputs.example-file }}"
+    - name: Restage using detected parent class
+      if: steps.detect-production-map.outputs.detected-parent != 'UNMAPPED'
+      id: restage
+      shell: bash
+      run: |
+        set -euo pipefail
+        python - <<'PY'
+        from pathlib import Path
+        from saphirapy.restaging import BromRestagingManager
+
+        target_file = Path("${{ steps.locate-example.outputs.example-file }}")
+        output_dir = Path("productions/restaged")
+        manager = BromRestagingManager(output_dir=output_dir)
+        restaged_files = manager.generate_restaged_code(target_file)
+        print(f"Generated {len(restaged_files)} restaged files in {output_dir}")
+        with open(".saphira_restaged_count", "w", encoding="utf-8") as fh:
+            fh.write(str(len(restaged_files)))
+        PY
+
+        restaged_count="$(cat .saphira_restaged_count)"
+        echo "restaged-count=$restaged_count" >> "$GITHUB_OUTPUT"
+    - name: Run restaged productions for offline motion planning
+      if: steps.detect-production-map.outputs.detected-parent == 'OfflineDynamicMotionPlanningProduction' || steps.detect-production-map.outputs.detected-parent == 'OfflineMotionPlanningProduction'
+      id: run-offline-restaged
+      shell: bash
+      run: |
+        set -euo pipefail
+        target_file="${{ steps.locate-example.outputs.example-file }}"
+        related_json='${{ steps.detect-production-map.outputs.related-productions-json }}'
+        output_dir="productions/restaged"
+        result_dir="productions/offline-results"
+        mkdir -p "$result_dir"
+
+        mapfile -t productions < <(RELATED_JSON="$related_json" python -c 'import json, os; [print(x) for x in json.loads(os.environ["RELATED_JSON"])]')
+
+        run_count=0
+        fail_count=0
+        for prod in "${productions[@]}"; do
+          [ -z "$prod" ] && continue
+          run_count=$((run_count + 1))
+          if ! saphira-restage-and-run-production \
+            --target-file "$target_file" \
+            --production-class "$prod" \
+            --output-dir "$output_dir" \
+            --result-json "$result_dir/${prod}.json"; then
+            fail_count=$((fail_count + 1))
+          fi
+        done
+
+        echo "offline-run-count=$run_count" >> "$GITHUB_OUTPUT"
+        echo "offline-fail-count=$fail_count" >> "$GITHUB_OUTPUT"
+    - name: Evaluate using detected parent class
+      id: evaluate
+      shell: bash
+      run: |
+        set -euo pipefail
+        detected_parent="${{ steps.detect-production-map.outputs.detected-parent }}"
+        restaged_count="${{ steps.restage.outputs.restaged-count }}"
+        offline_run_count="${{ steps.run-offline-restaged.outputs.offline-run-count }}"
+        offline_fail_count="${{ steps.run-offline-restaged.outputs.offline-fail-count }}"
+
+        if [ "$detected_parent" = "UNMAPPED" ]; then
+          metrics_body="### Saphira Metrics\n- Detection: no mapped production parent found"
+        else
+          if [ -z "$restaged_count" ]; then
+            restaged_count="0"
+          fi
+          metrics_body="### Saphira Metrics\n- Detected production parent: $detected_parent\n- Restaged file count: $restaged_count"
+
+          if [ "$detected_parent" = "OfflineDynamicMotionPlanningProduction" ] || [ "$detected_parent" = "OfflineMotionPlanningProduction" ]; then
+            if [ -z "$offline_run_count" ]; then
+              offline_run_count="0"
+            fi
+            if [ -z "$offline_fail_count" ]; then
+              offline_fail_count="0"
+            fi
+            metrics_body="$metrics_body\n- Offline restaged runs attempted: $offline_run_count\n- Offline restaged runs failed: $offline_fail_count"
+          fi
+        fi
+
+        {
+          echo "metrics-markdown<<EOF"
+          printf '%b\n' "$metrics_body"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"

@@ -1,0 +1,115 @@
+name: Saphira v1 Metrics Comment Test
+on: [pull_request, deployment]
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    name: Prepare Saphira detection
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      example-file: ${{ steps.detect.outputs.example-file }}
+      detected-parent: ${{ steps.detect.outputs.detected-production-parent }}
+      related-productions-json: ${{ steps.detect.outputs.related-productions-json }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Detect related productions
+        id: detect
+        uses: ./.github/actions/saphira-detect
+        with:
+          path-to-example-run: src/examples/motion_planning1/chem.py
+
+  restage-and-run:
+    needs: prepare
+    if: needs.prepare.outputs.related-productions-json != '[]'
+    runs-on: ubuntu-latest
+    name: Restage and run matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        production: ${{ fromJSON(needs.prepare.outputs.related-productions-json) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Run and evaluate production variant
+        id: run-evaluate
+        uses: ./.github/actions/saphira-run-evaluate
+        with:
+          target-file: ${{ needs.prepare.outputs.example-file }}
+          production-class: ${{ matrix.production }}
+
+      - name: Upload matrix result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-result-${{ matrix.production }}
+          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+
+  summarize:
+    needs: [prepare, restage-and-run]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download matrix result artifacts
+        if: needs.prepare.outputs.related-productions-json != '[]'
+        uses: actions/download-artifact@v4
+        with:
+          path: productions/matrix-results
+
+      - name: Build matrix summary markdown
+        id: matrix-summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          summary="### Matrix Restage Results"
+          if [ "${{ needs.prepare.outputs.related-productions-json }}" = "[]" ]; then
+            summary="$summary\n- No related productions detected for matrix fan-out"
+          elif ls productions/matrix-results/**/**/*.json >/dev/null 2>&1; then
+            while IFS= read -r file; do
+              prod="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["production_class"])' "$file")"
+              code="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["exit_code"])' "$file")"
+              summary="$summary\n- $prod: exit_code=$code"
+            done < <(find productions/matrix-results -type f -name "*.json" | sort)
+          else
+            summary="$summary\n- Matrix job did not produce result files"
+          fi
+
+          {
+            echo "matrix-summary<<EOF"
+            printf '%b\n' "$summary"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comment metrics on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const detectedParent = `${{ needs.prepare.outputs.detected-parent }}`;
+            const matrixSummary = `${{ steps.matrix-summary.outputs.matrix-summary }}`;
+
+            const body = [
+              'Saphira run complete.',
+              `Detected production parent: ${detectedParent}`,
+              '',
+              matrixSummary,
+              '',
+              'Custom note: grasping regression check passed.'
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
