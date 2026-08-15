@@ -12,7 +12,7 @@ inputs:
   python_version:
     description: Python version to use.
     required: false
-    default: '3.10'
+    default: '3.14.2'
   restaged-output-directory:
     description: Directory where restaged files are written.
     required: false
