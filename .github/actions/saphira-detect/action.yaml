@@ -35,7 +35,7 @@ runs:
       run: |
         set -euo pipefail
         pip install brom_drake
-        cd src/python && pip install -e . && cd -
+        pip install -e src/python/saphirapy
 
     - name: Locate the example run
       id: locate-example

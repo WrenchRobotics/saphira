@@ -46,7 +46,7 @@ runs:
       run: |
         set -euo pipefail
         pip install brom_drake
-        cd src/python && pip install -e . && cd -
+        pip install -e src/python/saphirapy
 
     - name: Restage and run production
       id: run-production
