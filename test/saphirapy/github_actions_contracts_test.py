@@ -91,11 +91,11 @@ class TestGitHubActionContracts(unittest.TestCase):
 
             self.assertIn("Additional Metrics:", summary)
             self.assertIn(
-                "| ChemLab1 | Final Configuration Error | 0.01 |",
+                "| Production | Final Configuration Error | Joint Space Length of Plan |",
                 summary,
             )
             self.assertIn(
-                "| ChemLab1 | Joint Space Length of Plan | 2.5 |",
+                "| ChemLab1 | 0.01 | 2.5 |",
                 summary,
             )
 

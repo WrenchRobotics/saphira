@@ -77,7 +77,8 @@ def build_summary(results_directories: str) -> str:
     parse_error_count = 0
 
     rows: list[tuple[str, str, str, str]] = []
-    metric_rows: list[tuple[str, str, str]] = []
+    metric_names: list[str] = []
+    metrics_by_production: dict[str, dict[str, str]] = {}
     for file_path in files:
         production = file_path.stem
         exit_code = "parse_error"
@@ -91,8 +92,12 @@ def build_summary(results_directories: str) -> str:
             duration_seconds = str(payload.get("duration_seconds", "n/a"))
             metrics_payload = payload.get("metrics")
             if isinstance(metrics_payload, dict) and metrics_payload:
+                production_metrics = metrics_by_production.setdefault(production, {})
                 for metric_name, metric_value in metrics_payload.items():
-                    metric_rows.append((production, str(metric_name), str(metric_value)))
+                    metric_name_str = str(metric_name)
+                    if metric_name_str not in metric_names:
+                        metric_names.append(metric_name_str)
+                    production_metrics[metric_name_str] = str(metric_value)
         except Exception:
             parse_error_count += 1
 
@@ -111,15 +116,28 @@ def build_summary(results_directories: str) -> str:
 
     lines.append("")
     lines.append(f"Totals: {pass_count} passed, {fail_count} failed")
-    if metric_rows:
+    if metric_names:
         lines.append("")
         lines.append("Additional Metrics:")
-        lines.append("| Production | Metric | Value |")
-        lines.append("| --- | --- | ---: |")
-        for production, metric_name, metric_value in metric_rows:
-            safe_metric_name = metric_name.replace("|", "\\|")
-            safe_metric_value = metric_value.replace("|", "\\|")
-            lines.append(f"| {production} | {safe_metric_name} | {safe_metric_value} |")
+        safe_metric_names = [metric_name.replace("|", "\\|") for metric_name in metric_names]
+        lines.append("| Production | " + " | ".join(safe_metric_names) + " |")
+        lines.append("| --- | " + " | ".join("---:" for _ in metric_names) + " |")
+
+        production_order = [production for production, _, _, _ in rows]
+        seen_productions: set[str] = set()
+        for production in production_order:
+            if production in seen_productions:
+                continue
+            seen_productions.add(production)
+            production_metrics = metrics_by_production.get(production)
+            if not production_metrics:
+                continue
+
+            metric_values: list[str] = []
+            for metric_name in metric_names:
+                value = production_metrics.get(metric_name, "")
+                metric_values.append(value.replace("|", "\\|"))
+            lines.append(f"| {production} | " + " | ".join(metric_values) + " |")
     if parse_error_count:
         lines.append(f"Warning: {parse_error_count} result file(s) could not be parsed")
 
