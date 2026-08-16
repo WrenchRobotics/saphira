@@ -1,0 +1,151 @@
+name: Saphira Collate and Comment
+
+description: Collate multiple saphira-run-evaluate result JSON files into a single combined PR comment.
+
+inputs:
+  results-directories:
+    description: Newline-separated directories containing per-run result JSON files (searched recursively).
+    required: true
+  python-version:
+    description: Python version to use.
+    required: false
+    default: '3.14.2'
+  detected-parent:
+    description: Detected parent production class name, for context in the comment.
+    required: false
+    default: ''
+  allow-comment-update:
+    description: Whether this action should build and upsert a PR comment for the current run.
+    required: false
+    default: 'true'
+  comment-marker:
+    description: Hidden HTML marker used to find and update the existing comment.
+    required: false
+    default: '<!-- saphira-combined-metrics-comment -->'
+  section-key:
+    description: Optional stable key used to upsert a single section inside the shared PR comment.
+    required: false
+    default: ''
+  section-heading:
+    description: Optional section heading to render for this collate invocation.
+    required: false
+    default: ''
+  github-token:
+    description: Token used to create or update the PR comment.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      if: ${{ inputs.allow-comment-update == 'true' }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install dependencies
+      if: ${{ inputs.allow-comment-update == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        pip install brom_drake
+        pip install -e src/python/saphirapy
+
+    - name: Build combined summary
+      id: combined-summary
+      if: ${{ inputs.allow-comment-update == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        summary="$(RESULTS_DIRECTORIES='${{ inputs.results-directories }}' python .github/actions/saphira-collate-comment/collate_results.py)"
+
+        {
+          echo "summary<<EOF"
+          printf '%s\n' "$summary"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Upsert combined PR comment
+      if: ${{ inputs.allow-comment-update == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v7
+      env:
+        COMMENT_MARKER: ${{ inputs.comment-marker }}
+        DETECTED_PARENT: ${{ inputs.detected-parent }}
+        SECTION_KEY: ${{ inputs.section-key }}
+        SECTION_HEADING: ${{ inputs.section-heading }}
+        RESULTS_DIRECTORIES: ${{ inputs.results-directories }}
+        COMBINED_SUMMARY: ${{ steps.combined-summary.outputs.summary }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const marker = process.env.COMMENT_MARKER || '<!-- saphira-combined-metrics-comment -->';
+          const detectedParent = process.env.DETECTED_PARENT || '';
+          const combinedSummary = process.env.COMBINED_SUMMARY || '### Combined Saphira Metrics\n- Summary generation failed';
+          const commitSuffix = context.sha.slice(-7);
+          const runAttempt = process.env.GITHUB_RUN_ATTEMPT || '1';
+          const requestedSectionKey = (process.env.SECTION_KEY || '').trim();
+          const fallbackSectionKey = (process.env.RESULTS_DIRECTORIES || '').trim() || 'default';
+          const rawSectionKey = requestedSectionKey || fallbackSectionKey;
+          const normalizedSectionKey = rawSectionKey
+            .toLowerCase()
+            .replace(/[^a-z0-9._-]+/g, '-')
+            .replace(/^-+|-+$/g, '') || 'default';
+          const sectionHeading = (process.env.SECTION_HEADING || '').trim() || `Combined Saphira Metrics (${normalizedSectionKey})`;
+          const sectionStart = `<!-- saphira-collate-section:${normalizedSectionKey}:start -->`;
+          const sectionEnd = `<!-- saphira-collate-section:${normalizedSectionKey}:end -->`;
+
+          const sectionBody = [
+            sectionStart,
+            `## ${sectionHeading}`,
+            detectedParent ? `Detected production parent: ${detectedParent}` : '',
+            `Trigger commit suffix: ${commitSuffix} (run attempt ${runAttempt})`,
+            '',
+            combinedSummary,
+            sectionEnd,
+          ].filter((line) => line !== null && line !== '').join('\n');
+
+          const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const sectionRegex = new RegExp(`${escapeRegex(sectionStart)}[\\s\\S]*?${escapeRegex(sectionEnd)}`, 'm');
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.payload.pull_request.number,
+            per_page: 100,
+          });
+
+          const existing = comments.find((c) =>
+            typeof c.body === 'string' && c.body.includes(marker)
+          );
+
+          if (existing) {
+            let body = (existing.body || '').trimEnd();
+
+            if (sectionRegex.test(body)) {
+              body = body.replace(sectionRegex, sectionBody);
+            } else {
+              body = [body, '', sectionBody].filter((line) => line !== '').join('\n');
+            }
+
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            const body = [
+              marker,
+              '# Saphira Combined Run Results',
+              'Each section below corresponds to one collate invocation in this workflow.',
+              '',
+              sectionBody,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+          }

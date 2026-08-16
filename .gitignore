@@ -135,6 +135,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+saphira-venv2/
 
 # Spyder project settings
 .spyderproject
@@ -169,3 +170,9 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Brom Generated Files
+**/brom
+
+# Saphira Generated Files In Tests
+test/**/saphira

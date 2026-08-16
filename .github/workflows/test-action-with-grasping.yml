@@ -1,0 +1,180 @@
+name: Test Action with a Brom Drake Grasping Production
+on: [pull_request, deployment]
+
+env:
+  PYTHON_VERSION: '3.14.2'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    name: Prepare detection for grasping example
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      example-file: ${{ steps.detect.outputs.example-file }}
+      detected-parent: ${{ steps.detect.outputs.detected-production-parent }}
+      related-productions-json: ${{ steps.normalize-related.outputs.related-productions-json }}
+      has-related-productions: ${{ steps.normalize-related.outputs.has-related-productions }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Detect related productions
+        id: detect
+        uses: ./.github/actions/saphira-detect
+        with:
+          path-to-example-run: src/examples/grasping1/
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Normalize related productions output
+        id: normalize-related
+        shell: bash
+        env:
+          RAW_RELATED_JSON: ${{ steps.detect.outputs.related-productions-json }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          raw = (os.getenv("RAW_RELATED_JSON") or "").strip()
+          if not raw:
+              related = []
+          else:
+              try:
+                  parsed = json.loads(raw)
+              except json.JSONDecodeError:
+                  related = []
+              else:
+                  related = parsed if isinstance(parsed, list) else []
+
+          print(f"related-productions-json={json.dumps(related)}")
+          print(f"has-related-productions={'true' if len(related) > 0 else 'false'}")
+          PY
+
+  restage-and-run:
+    needs: prepare
+    if: needs.prepare.outputs.has-related-productions == 'true'
+    runs-on: ubuntu-latest
+    name: Run related productions matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        production: ${{ fromJSON(needs.prepare.outputs.related-productions-json) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Run and evaluate production variant
+        id: run-evaluate
+        uses: ./.github/actions/saphira-run-evaluate
+        with:
+          target-file: ${{ needs.prepare.outputs.example-file }}
+          production-class: ${{ matrix.production }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Upload matrix result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-result-${{ matrix.production }}
+          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+
+  run-no-related-fallback:
+    needs: prepare
+    if: needs.prepare.outputs.has-related-productions != 'true'
+    runs-on: ubuntu-latest
+    name: Run fallback when no related productions
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install brom_drake
+          pip install -e src/python/saphirapy
+
+      - name: Run example and produce fallback result
+        id: fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          result_dir="productions/matrix-results"
+          mkdir -p "$result_dir"
+          result_json_path="$result_dir/no-related-productions.json"
+
+          start_epoch="$(python -c 'import time; print(time.time())')"
+          set +e
+          python "${{ needs.prepare.outputs.example-file }}"
+          exit_code=$?
+          set -e
+          end_epoch="$(python -c 'import time; print(time.time())')"
+          duration_seconds="$(python -c "start=float('$start_epoch'); end=float('$end_epoch'); print(f'{max(0.0, end-start):.3f}')")"
+
+          python .github/actions/saphira-run-evaluate/finalize_result.py \
+            "$result_json_path" \
+            "NO_RELATED_PRODUCTIONS" \
+            "$exit_code" \
+            "$duration_seconds" \
+            ""
+
+          echo "result-json-path=$result_json_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload fallback result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: no-related-result
+          path: ${{ steps.fallback.outputs.result-json-path }}
+
+  summarize:
+    needs: [prepare, restage-and-run, run-no-related-fallback]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download matrix result artifacts
+        if: needs.prepare.outputs.has-related-productions == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: productions/matrix-results
+
+      - name: Download fallback result artifact
+        if: needs.prepare.outputs.has-related-productions != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: no-related-result
+          path: productions/matrix-results
+
+      - name: Collate results and comment on PR
+        uses: ./.github/actions/saphira-collate-comment
+        with:
+          results-directories: productions/matrix-results
+          section-key: test-grasping-summary
+          section-heading: Grasping Example Summary
+          python-version: ${{ env.PYTHON_VERSION }}
+          detected-parent: ${{ needs.prepare.outputs.detected-parent }}
+          allow-comment-update: >-
+            ${{
+              needs.prepare.result == 'success' &&
+              (
+                (needs.prepare.outputs.has-related-productions == 'true' && needs.restage-and-run.result == 'success') ||
+                (needs.prepare.outputs.has-related-productions != 'true' && needs.run-no-related-fallback.result == 'success')
+              )
+            }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}

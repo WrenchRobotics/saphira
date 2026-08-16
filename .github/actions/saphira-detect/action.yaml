@@ -1,0 +1,70 @@
+name: Saphira Detect
+
+description: Detect the production parent and related production classes for a target example.
+
+inputs:
+  path-to-example-run:
+    description: Path to the example directory containing a production script.
+    required: true
+  python-version:
+    description: Python version to use.
+    required: false
+    default: '3.14.2'
+
+outputs:
+  example-file:
+    description: The selected example Python file used for detection.
+    value: ${{ steps.locate-example.outputs.example-file }}
+  detected-production-parent:
+    description: Detected parent production class name from RELATED_PRODUCTIONS.
+    value: ${{ steps.detect-production-map.outputs.detected-parent }}
+  related-productions-json:
+    description: JSON array of related production class names.
+    value: ${{ steps.detect-production-map.outputs.related-productions-json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        pip install brom_drake
+        pip install -e src/python/saphirapy
+
+    - name: Locate the example run
+      id: locate-example
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "The example run is located at ${{ inputs.path-to-example-run }}"
+        matching_files=()
+        while read -r file; do
+          echo "Found Python file: $file"
+          if grep -q "brom_drake.productions" "$file"; then
+            matching_files+=("$file")
+          fi
+        done < <(find ${{ inputs.path-to-example-run }} -type f -name "*.py")
+
+        if [ "${#matching_files[@]}" -eq 0 ]; then
+          echo "No matching production file was found in ${{ inputs.path-to-example-run }}"
+          exit 1
+        fi
+
+        first_file="${matching_files[0]}"
+        echo "Using example file: $first_file"
+        echo "example-file=$first_file" >> "$GITHUB_OUTPUT"
+
+    - name: Detect production mapping
+      id: detect-production-map
+      shell: bash
+      run: |
+        set -euo pipefail
+        detection_json="$(saphira-detect-production-map "${{ steps.locate-example.outputs.example-file }}")"
+        echo "Detection payload: $detection_json"
+        python .github/actions/saphira-detect/emit_outputs.py "$detection_json" "$GITHUB_OUTPUT"

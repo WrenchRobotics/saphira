@@ -1,0 +1,90 @@
+name: Saphira v1 Metrics Comment Test
+on: [pull_request, deployment]
+
+env:
+  PYTHON_VERSION: '3.14.2'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    name: Prepare Saphira detection
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      example-file: ${{ steps.detect.outputs.example-file }}
+      detected-parent: ${{ steps.detect.outputs.detected-production-parent }}
+      related-productions-json: ${{ steps.detect.outputs.related-productions-json }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Detect related productions
+        id: detect
+        uses: ./.github/actions/saphira-detect
+        with:
+          path-to-example-run: src/examples/motion_planning1/chem.py
+          python-version: ${{ env.PYTHON_VERSION }}
+
+  restage-and-run:
+    needs: prepare
+    if: needs.prepare.outputs.related-productions-json != '[]'
+    runs-on: ubuntu-latest
+    name: Restage and run matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        production: ${{ fromJSON(needs.prepare.outputs.related-productions-json) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Run and evaluate production variant
+        id: run-evaluate
+        uses: ./.github/actions/saphira-run-evaluate
+        with:
+          target-file: ${{ needs.prepare.outputs.example-file }}
+          production-class: ${{ matrix.production }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Upload matrix result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-result-${{ matrix.production }}
+          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+
+  summarize:
+    needs: [prepare, restage-and-run]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download matrix result artifacts
+        if: needs.prepare.outputs.related-productions-json != '[]'
+        uses: actions/download-artifact@v4
+        with:
+          path: productions/matrix-results
+
+      - name: Collate results and comment on PR
+        uses: ./.github/actions/saphira-collate-comment
+        with:
+          results-directories: productions/matrix-results
+          section-key: saphira-v1-matrix
+          section-heading: Saphira v1 Matrix Results
+          python-version: ${{ env.PYTHON_VERSION }}
+          detected-parent: ${{ needs.prepare.outputs.detected-parent }}
+          allow-comment-update: >-
+            ${{
+              needs.prepare.result == 'success' &&
+              needs.prepare.outputs.related-productions-json != '[]' &&
+              needs.restage-and-run.result == 'success'
+            }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
