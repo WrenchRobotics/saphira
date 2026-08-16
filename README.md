@@ -5,6 +5,11 @@ A GitHub action for automated testing and validation of robotics algorithms.
 
 When a workflow calls `saphira-collate-comment` more than once, each invocation should use a unique section key so results do not overwrite each other.
 
+If you are using this action from another repository, reference it with `owner/repo/path@ref` format:
+- `uses: kwesirutledge/saphira/.github/actions/saphira-collate-comment@main`
+
+For production workflows, pin to a tag or commit SHA instead of `main`.
+
 How it works:
 - `comment-marker` still identifies one shared PR comment.
 - `section-key` identifies one upsert target within that comment.
@@ -18,20 +23,20 @@ Example:
 
 ```yaml
 - name: Collate matrix runs
-	uses: ./.github/actions/saphira-collate-comment
-	with:
-		results-directories: productions/matrix-results
-		section-key: matrix-results
-		section-heading: Matrix Production Results
-		allow-comment-update: ${{ needs.matrix.result == 'success' }}
-		github-token: ${{ secrets.GITHUB_TOKEN }}
+  uses: kwesirutledge/saphira/.github/actions/saphira-collate-comment@main
+  with:
+    results-directories: productions/matrix-results
+    section-key: matrix-results
+    section-heading: Matrix Production Results
+    allow-comment-update: ${{ needs.matrix.result == 'success' }}
+    github-token: ${{ secrets.GITHUB_TOKEN }}
 
 - name: Collate fallback runs
-	uses: ./.github/actions/saphira-collate-comment
-	with:
-		results-directories: productions/fallback-results
-		section-key: fallback-results
-		section-heading: Fallback Production Results
-		allow-comment-update: ${{ needs.fallback.result == 'success' }}
-		github-token: ${{ secrets.GITHUB_TOKEN }}
+  uses: kwesirutledge/saphira/.github/actions/saphira-collate-comment@main
+  with:
+    results-directories: productions/fallback-results
+    section-key: fallback-results
+    section-heading: Fallback Production Results
+    allow-comment-update: ${{ needs.fallback.result == 'success' }}
+    github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
