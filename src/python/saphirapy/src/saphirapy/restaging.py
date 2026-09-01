@@ -12,6 +12,7 @@ NodePath = List[Tuple[str, Optional[int]]]
 from .syntax_tree.cast_call_reference import CastCallReference
 from .syntax_tree.cast_member_option import CastMemberOption
 from .utils import identify_algorithm_type
+from .productions.cast_member_registry import get_alternatives_for_type
 
 class BromRestagingManager:
     """
@@ -261,6 +262,43 @@ class BromRestagingManager:
                 node.names = retained_aliases
             else:
                 tree.body.remove(node)
+
+    def generate_cast_member_variants(
+        self,
+        target_file: Path,
+        cast_member_alternatives: Optional[Dict[str, List[CastMemberOption]]] = None,
+    ) -> List[Path]:
+        """Generate one recast source file per registered alternative."""
+        parsed_tree = ast.parse(target_file.read_text())
+        cast_calls = self.find_easy_cast_and_build_calls(parsed_tree)
+        if not cast_calls:
+            return []
+        if len(cast_calls) != 1:
+            raise ValueError("Variant generation currently requires exactly one supported cast call.")
+
+        cast_call = cast_calls[0]
+        if cast_call.cast_member_type is None:
+            raise ValueError("The detected cast member does not have a registered algorithm type.")
+
+        alternatives = (
+            get_alternatives_for_type(cast_call.cast_member_type)
+            if cast_member_alternatives is None
+            else cast_member_alternatives.get(cast_call.cast_member_type, [])
+        )
+        if not alternatives:
+            raise ValueError(
+                f"No cast-member alternatives registered for {cast_call.cast_member_type!r}."
+            )
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        output_files = []
+        for option in alternatives:
+            output_tree = self.replace_cast_member_in_ast(parsed_tree, cast_call, option)
+            output_file = self.output_dir / f"{target_file.stem}_{option.name}.py"
+            output_file.write_text(ast.unparse(output_tree) + "\n")
+            output_files.append(output_file)
+
+        return output_files
 
     def find_all_imported_production_class_names(self, tree: ast.AST) -> List[str]:
         """

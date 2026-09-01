@@ -1,5 +1,6 @@
 import ast
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 # Import Drake first to ensure proper binding order
@@ -9,6 +10,11 @@ import pydrake.all
 from saphirapy.restaging import BromRestagingManager
 from saphirapy.syntax_tree.cast_call_reference import CastCallReference
 from saphirapy.syntax_tree.cast_member_option import CastMemberOption
+from saphirapy.productions.cast_member_registry import (
+    CAST_MEMBER_ALTERNATIVES,
+    get_alternatives_for_type,
+)
+from saphirapy.utils import identify_algorithm_type
 
 
 class TestCastMemberDetection(unittest.TestCase):
@@ -177,7 +183,7 @@ z = x + y
         """Test detection of multiple easy_cast_and_build() calls"""
         code = """
 from brom_drake.motion_planning.algorithms.rrt.connect import RRTConnectPlanner
-from brom_drake.motion_planning.algorithms.prm_star import PRMStarPlanner
+from brom_drake.motion_planning.algorithms.rrt.bidirectional import BidirectionalRRTPlanner
 from brom_drake.productions.motion_planning.offline import ChemLab1
 
 production1 = ChemLab1()
@@ -185,8 +191,8 @@ planner1 = RRTConnectPlanner(...)
 diagram1, ctx1 = production1.easy_cast_and_build(planner1.plan, with_watcher=True)
 
 production2 = ChemLab1()
-planner2 = PRMStarPlanner(...)
-diagram2, ctx2 = production2.easy_cast_and_build(planner2.plan_path, with_watcher=False)
+planner2 = BidirectionalRRTPlanner(...)
+diagram2, ctx2 = production2.easy_cast_and_build(planner2.plan, with_watcher=False)
 """
         tree = ast.parse(code)
         cast_calls = self.manager.find_easy_cast_and_build_calls(tree)
@@ -419,6 +425,165 @@ diagram, context = production.easy_cast_and_build(planner.plan)
 
         with self.assertRaisesRegex(ValueError, "exactly one import statement"):
             self.manager.replace_cast_member_in_ast(source_tree, reference, option)
+
+
+class TestCastMemberRegistry(unittest.TestCase):
+    """Test Phase 4: The built-in alternative registry."""
+
+    def test_motion_planning_registry_contains_verified_alternatives(self):
+        options = get_alternatives_for_type("motion_planning_rrt")
+
+        self.assertIs(options, CAST_MEMBER_ALTERNATIVES["motion_planning_rrt"])
+        self.assertEqual(
+            [option.name for option in options],
+            ["rrt_connect", "bidirectional_rrt", "bidirectional_rrt_connect"],
+        )
+        for option in options:
+            self.assertEqual(option.method_to_call, "plan")
+            self.assertEqual(ast.unparse(ast.parse(option.instantiation_code).body[-1].targets[0]), option.variable_name)
+            for import_statement in option.import_statements:
+                namespace = {}
+                exec(import_statement, namespace)
+
+    def test_unknown_algorithm_type_has_no_alternatives(self):
+        self.assertEqual(get_alternatives_for_type("unknown"), [])
+
+
+class TestAlgorithmTypeIdentification(unittest.TestCase):
+    """Test classifications used to select the default alternative registry."""
+
+    def test_recognizes_all_registered_motion_planner_classes(self):
+        class_names = [
+            "RRTConnectPlanner",
+            "BidirectionalRRTPlanner",
+            "BidirectionalRRTConnectPlanner",
+        ]
+
+        self.assertEqual(
+            [identify_algorithm_type(class_name) for class_name in class_names],
+            ["motion_planning_rrt", "motion_planning_rrt", "motion_planning_rrt"],
+        )
+
+    def test_rejects_unregistered_planner_class(self):
+        with self.assertRaisesRegex(ValueError, "Unknown algorithm class"):
+            identify_algorithm_type("UnknownPlanner")
+
+
+class TestCastMemberVariantGeneration(unittest.TestCase):
+    """Test Phase 4: Generating Python source variants from alternatives."""
+
+    def _write_source(self, directory: Path, contents: str) -> Path:
+        source_file = directory / "source.py"
+        source_file.write_text(contents)
+        return source_file
+
+    def _custom_options(self) -> list[CastMemberOption]:
+        return [
+            CastMemberOption(
+                name="first",
+                import_statements=["from alternatives import FirstPlanner"],
+                instantiation_code="first_planner = FirstPlanner()",
+                variable_name="first_planner",
+                method_to_call="plan",
+            ),
+            CastMemberOption(
+                name="second",
+                import_statements=["from alternatives import SecondPlanner"],
+                instantiation_code="second_planner = SecondPlanner()",
+                variable_name="second_planner",
+                method_to_call="plan_path",
+            ),
+        ]
+
+    def test_generates_one_file_per_injected_alternative(self):
+        source_code = """planner = RRTConnectPlanner()
+diagram, context = production.easy_cast_and_build(planner.plan, with_watcher=True)
+"""
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source_file = self._write_source(root, source_code)
+            manager = BromRestagingManager(root / "variants")
+
+            output_files = manager.generate_cast_member_variants(
+                source_file,
+                {"motion_planning_rrt": self._custom_options()},
+            )
+
+            self.assertEqual([path.name for path in output_files], ["source_first.py", "source_second.py"])
+            self.assertTrue(all(path.is_file() for path in output_files))
+            self.assertEqual(source_file.read_text(), source_code)
+            self.assertIn("first_planner.plan", output_files[0].read_text())
+            self.assertIn("second_planner.plan_path", output_files[1].read_text())
+            self.assertTrue(all(ast.parse(path.read_text()) for path in output_files))
+
+    def test_generates_default_variants_for_real_chem_lab_fixture(self):
+        source_file = Path(__file__).resolve().parents[1] / "data" / "motion_planning" / "chem_lab_demo.py"
+        with TemporaryDirectory() as temporary_directory:
+            manager = BromRestagingManager(Path(temporary_directory))
+
+            output_files = manager.generate_cast_member_variants(source_file)
+
+            self.assertEqual(
+                [path.name for path in output_files],
+                [
+                    "chem_lab_demo_rrt_connect.py",
+                    "chem_lab_demo_bidirectional_rrt.py",
+                    "chem_lab_demo_bidirectional_rrt_connect.py",
+                ],
+            )
+            for output_file in output_files:
+                generated_tree = ast.parse(output_file.read_text())
+                compile(generated_tree, filename=str(output_file), mode="exec")
+
+    def test_returns_no_files_when_source_has_no_supported_cast_call(self):
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source_file = self._write_source(root, "value = 1\n")
+            output_directory = root / "variants"
+            manager = BromRestagingManager(output_directory)
+
+            output_files = manager.generate_cast_member_variants(source_file)
+
+            self.assertEqual(output_files, [])
+            self.assertFalse(output_directory.exists())
+
+    def test_rejects_unknown_algorithm_type(self):
+        source_code = """planner = CustomPlanner()
+diagram, context = production.easy_cast_and_build(planner.plan)
+"""
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manager = BromRestagingManager(root / "variants")
+            source_file = self._write_source(root, source_code)
+
+            with self.assertRaisesRegex(ValueError, "does not have a registered algorithm type"):
+                manager.generate_cast_member_variants(source_file)
+
+    def test_rejects_multiple_supported_cast_calls(self):
+        source_code = """first_planner = RRTConnectPlanner()
+second_planner = RRTConnectPlanner()
+first_diagram, first_context = first_production.easy_cast_and_build(first_planner.plan)
+second_diagram, second_context = second_production.easy_cast_and_build(second_planner.plan)
+"""
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manager = BromRestagingManager(root / "variants")
+            source_file = self._write_source(root, source_code)
+
+            with self.assertRaisesRegex(ValueError, "exactly one supported cast call"):
+                manager.generate_cast_member_variants(source_file)
+
+    def test_rejects_missing_injected_alternatives(self):
+        source_code = """planner = RRTConnectPlanner()
+diagram, context = production.easy_cast_and_build(planner.plan)
+"""
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manager = BromRestagingManager(root / "variants")
+            source_file = self._write_source(root, source_code)
+
+            with self.assertRaisesRegex(ValueError, "No cast-member alternatives"):
+                manager.generate_cast_member_variants(source_file, {})
 
 
 if __name__ == "__main__":

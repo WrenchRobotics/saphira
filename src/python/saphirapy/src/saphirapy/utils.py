@@ -18,7 +18,11 @@ def identify_algorithm_type(class_name: str) -> str:
         ValueError: If the class name is not recognized
     """
     # Motion planning algorithms
-    if class_name in ("RRTConnectPlanner", "PRMStarPlanner", "BiRRTPlanner"):
+    if class_name in (
+        "RRTConnectPlanner",
+        "BidirectionalRRTPlanner",
+        "BidirectionalRRTConnectPlanner",
+    ):
         return "motion_planning_rrt"
 
     # Grasp planning algorithms
