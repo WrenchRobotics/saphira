@@ -5,7 +5,7 @@ import unittest
 
 from saphirapy.detect_production_map import detect_production_mapping
 from saphirapy.github_actions_contracts import (
-    build_casted_production_outputs,
+    build_cast_production_outputs,
     build_summary,
     finalize_result_payload,
     find_alternative_actors_for_production,
@@ -63,14 +63,14 @@ class TestGitHubActionContracts(unittest.TestCase):
             )
         )
 
-    def test_casted_production_outputs_keep_baseline_separate_from_opt_in_variants(self):
+    def test_cast_production_outputs_keep_baseline_separate_from_opt_in_variants(self):
         target_file = self.data_directory / "motion_planning" / "chem_lab_demo.py"
         detection_payload = json.dumps(detect_production_mapping(target_file))
 
-        disabled_outputs = build_casted_production_outputs(
+        disabled_outputs = build_cast_production_outputs(
             detection_payload, target_file, False, False
         )
-        enabled_outputs = build_casted_production_outputs(
+        enabled_outputs = build_cast_production_outputs(
             detection_payload, target_file, True, True
         )
 
@@ -86,29 +86,29 @@ class TestGitHubActionContracts(unittest.TestCase):
             ["bidirectional_rrt", "bidirectional_rrt_connect"],
         )
 
-    def test_casted_productions_json_combines_productions_and_actors(self):
+    def test_cast_productions_json_combines_productions_and_actors(self):
         target_file = self.data_directory / "motion_planning" / "chem_lab_demo.py"
         detection_payload = json.dumps(detect_production_mapping(target_file))
 
-        disabled_outputs = build_casted_production_outputs(
+        disabled_outputs = build_cast_production_outputs(
             detection_payload, target_file, False, False
         )
-        enabled_outputs = build_casted_production_outputs(
+        enabled_outputs = build_cast_production_outputs(
             detection_payload, target_file, True, True
         )
 
-        disabled_casted_productions = json.loads(disabled_outputs["casted-productions-json"])
+        disabled_cast_productions = json.loads(disabled_outputs["cast-productions-json"])
         self.assertEqual(
-            [casted_production["casted-production-name"] for casted_production in disabled_casted_productions],
+            [cast_production["cast-production-name"] for cast_production in disabled_cast_productions],
             ["production-ChemLab1", "production-ShelfPlanning1"],
         )
         self.assertTrue(
-            all(casted_production["actor-variant-json"] == "" for casted_production in disabled_casted_productions)
+            all(cast_production["actor-variant-json"] == "" for cast_production in disabled_cast_productions)
         )
 
-        enabled_casted_productions = json.loads(enabled_outputs["casted-productions-json"])
+        enabled_cast_productions = json.loads(enabled_outputs["cast-productions-json"])
         self.assertEqual(
-            [casted_production["casted-production-name"] for casted_production in enabled_casted_productions],
+            [cast_production["cast-production-name"] for cast_production in enabled_cast_productions],
             [
                 "production-ChemLab1",
                 "production-ShelfPlanning1",
@@ -116,18 +116,18 @@ class TestGitHubActionContracts(unittest.TestCase):
                 "actor-bidirectional_rrt_connect-0",
             ],
         )
-        actor_casted_productions = [
-            casted_production
-            for casted_production in enabled_casted_productions
-            if casted_production["actor-variant-json"]
+        actor_cast_productions = [
+            cast_production
+            for cast_production in enabled_cast_productions
+            if cast_production["actor-variant-json"]
         ]
         self.assertTrue(
-            all(casted_production["production-class"] == "ChemLab1" for casted_production in actor_casted_productions)
+            all(cast_production["production-class"] == "ChemLab1" for cast_production in actor_cast_productions)
         )
         self.assertTrue(
             all(
-                json.loads(casted_production["actor-variant-json"])["cast_call_index"] == 0
-                for casted_production in actor_casted_productions
+                json.loads(cast_production["actor-variant-json"])["cast_call_index"] == 0
+                for cast_production in actor_cast_productions
             )
         )
 

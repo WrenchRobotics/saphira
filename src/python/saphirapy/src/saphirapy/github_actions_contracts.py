@@ -79,13 +79,13 @@ def find_alternative_actors_for_production(production_file: Path) -> list[dict[s
     return actors
 
 
-def build_casted_production_outputs(
+def build_cast_production_outputs(
     detection_json: str,
     production_file: Path,
     include_alternative_productions: bool,
     include_alternative_actors: bool,
 ) -> dict[str, str]:
-    """Build GitHub Actions matrix outputs for baseline and optional casted productions."""
+    """Build GitHub Actions matrix outputs for baseline and optional cast productions."""
     payload = json.loads(detection_json)
     related_productions = payload.get("related_productions") or []
     if not isinstance(related_productions, list):
@@ -111,20 +111,20 @@ def build_casted_production_outputs(
                     }
                 )
 
-    casted_productions: list[dict[str, str]] = [
+    cast_productions: list[dict[str, str]] = [
         {
             "production-class": str(production),
             "actor-variant-json": "",
-            "casted-production-name": f"production-{production}",
+            "cast-production-name": f"production-{production}",
             "artifact-name": f"matrix-result-{production}",
         }
         for production in related_productions
     ]
-    casted_productions.extend(
+    cast_productions.extend(
         {
             "production-class": detected_production,
             "actor-variant-json": json.dumps(actor),
-            "casted-production-name": f"actor-{actor['name']}-{actor['cast_call_index']}",
+            "cast-production-name": f"actor-{actor['name']}-{actor['cast_call_index']}",
             "artifact-name": f"actor-result-{actor['name']}-{actor['cast_call_index']}",
         }
         for actor in alternative_actors
@@ -136,11 +136,11 @@ def build_casted_production_outputs(
         "alternative-actors-json": json.dumps(alternative_actors),
         "has-alternative-productions": str(bool(alternative_productions)).lower(),
         "has-alternative-actors": str(bool(alternative_actors)).lower(),
-        "casted-productions-json": json.dumps(casted_productions),
+        "cast-productions-json": json.dumps(cast_productions),
     }
 
 
-def write_casted_production_outputs(
+def write_cast_production_outputs(
     detection_json: str,
     production_file: Path,
     github_output_path: Path,
@@ -149,7 +149,7 @@ def write_casted_production_outputs(
 ) -> dict[str, str]:
     outputs = parse_detection_outputs(detection_json)
     outputs.update(
-        build_casted_production_outputs(
+        build_cast_production_outputs(
             detection_json,
             production_file,
             include_alternative_productions,
@@ -168,7 +168,7 @@ def finalize_result_payload(
     exit_code: int,
     duration_seconds: float,
     restaged_file_default: str,
-    casted_production_name: str | None = None,
+    cast_production_name: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     if result_json_path.exists():
@@ -181,8 +181,8 @@ def finalize_result_payload(
     payload.setdefault("restaged_file", restaged_file_default)
     payload["exit_code"] = int(exit_code)
     payload["duration_seconds"] = float(duration_seconds)
-    if casted_production_name is not None:
-        payload["casted_production_name"] = casted_production_name
+    if cast_production_name is not None:
+        payload["cast_production_name"] = cast_production_name
 
     result_json_path.parent.mkdir(parents=True, exist_ok=True)
     result_json_path.write_text(json.dumps(payload, indent=2))
@@ -228,7 +228,7 @@ def build_summary(results_directories: str) -> str:
         try:
             payload = json.loads(file_path.read_text())
             production = str(
-                payload.get("casted_production_name") or payload.get("production_class") or production
+                payload.get("cast_production_name") or payload.get("production_class") or production
             )
             exit_code = str(payload.get("exit_code", "unknown"))
             duration_seconds = str(payload.get("duration_seconds", "n/a"))

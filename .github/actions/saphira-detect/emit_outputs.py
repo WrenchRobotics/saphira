@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from saphirapy.github_actions_contracts import write_casted_production_outputs
+from saphirapy.github_actions_contracts import write_cast_production_outputs
 
 
 def parse_boolean(value: str) -> bool:
@@ -21,7 +21,7 @@ def main() -> int:
             "<include_alternative_actors>"
         )
 
-    write_casted_production_outputs(
+    write_cast_production_outputs(
         sys.argv[1],
         Path(sys.argv[2]),
         Path(sys.argv[3]),

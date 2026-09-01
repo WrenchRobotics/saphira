@@ -44,9 +44,9 @@ outputs:
   has-alternative-actors:
     description: Whether at least one actor alternative was selected.
     value: ${{ steps.detect-production-map.outputs.has-alternative-actors }}
-  casted-productions-json:
-    description: JSON array of matrix-ready casted productions ({production-class, actor-variant-json, casted-production-name, artifact-name}) combining related productions and, when enabled, alternative actors.
-    value: ${{ steps.detect-production-map.outputs.casted-productions-json }}
+  cast-productions-json:
+    description: JSON array of matrix-ready cast productions ({production-class, actor-variant-json, cast-production-name, artifact-name}) combining related productions and, when enabled, alternative actors.
+    value: ${{ steps.detect-production-map.outputs.cast-productions-json }}
 
 runs:
   using: composite
