@@ -51,6 +51,7 @@ jobs:
           actor-variant-json: ${{ matrix.cast_production.actor-variant-json }}
           cast-production-name: ${{ matrix.cast_production.cast-production-name }}
           python-version: ${{ env.PYTHON_VERSION }}
+          run-timeout-seconds: 300
 
       - name: Upload matrix result artifact
         if: always()
