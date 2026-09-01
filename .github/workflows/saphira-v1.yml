@@ -14,7 +14,10 @@ jobs:
     outputs:
       example-file: ${{ steps.detect.outputs.example-file }}
       detected-parent: ${{ steps.detect.outputs.detected-production-parent }}
+      detected-production: ${{ steps.detect.outputs.detected-production }}
       related-productions-json: ${{ steps.detect.outputs.related-productions-json }}
+      alternative-actors-json: ${{ steps.detect.outputs.alternative-actors-json }}
+      has-alternative-actors: ${{ steps.detect.outputs.has-alternative-actors }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -59,8 +62,40 @@ jobs:
             ${{ steps.run-evaluate.outputs.result-json-path }}
             ${{ steps.run-evaluate.outputs.restaging-bundle-path }}
 
+  run-alternative-actors:
+    needs: prepare
+    if: needs.prepare.outputs.has-alternative-actors == 'true'
+    runs-on: ubuntu-latest
+    name: Run current production with alternative actors
+    strategy:
+      fail-fast: false
+      matrix:
+        actor: ${{ fromJSON(needs.prepare.outputs.alternative-actors-json) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Run and evaluate actor variant
+        id: run-evaluate
+        uses: ./.github/actions/saphira-run-evaluate
+        with:
+          target-file: ${{ needs.prepare.outputs.example-file }}
+          production-class: ${{ needs.prepare.outputs.detected-production }}
+          actor-variant-json: ${{ toJSON(matrix.actor) }}
+          variant-name: actor-${{ matrix.actor.name }}-${{ matrix.actor.cast_call_index }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Upload actor result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actor-result-${{ matrix.actor.name }}-${{ matrix.actor.cast_call_index }}
+          path: |
+            ${{ steps.run-evaluate.outputs.result-json-path }}
+            ${{ steps.run-evaluate.outputs.restaging-bundle-path }}
+
   summarize:
-    needs: [prepare, restage-and-run]
+    needs: [prepare, restage-and-run, run-alternative-actors]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -72,7 +107,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Download matrix result artifacts
-        if: needs.prepare.outputs.related-productions-json != '[]'
+        if: needs.prepare.outputs.related-productions-json != '[]' || needs.prepare.outputs.has-alternative-actors == 'true'
         uses: actions/download-artifact@v4
         with:
           path: productions/matrix-results
@@ -88,7 +123,7 @@ jobs:
           allow-comment-update: >-
             ${{
               needs.prepare.result == 'success' &&
-              needs.prepare.outputs.related-productions-json != '[]' &&
-              needs.restage-and-run.result == 'success'
+              (needs.prepare.outputs.related-productions-json == '[]' || needs.restage-and-run.result == 'success') &&
+              (needs.prepare.outputs.has-alternative-actors != 'true' || needs.run-alternative-actors.result == 'success')
             }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

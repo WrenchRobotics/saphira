@@ -49,6 +49,8 @@ class TestRestageAndRunProduction(unittest.TestCase):
             manifest = Path(result["restaging_manifest"]).read_text()
             self.assertIn('variant_name: "ChemLab1"', manifest)
             self.assertIn('production_class: "ChemLab1"', manifest)
+            self.assertIn("package_versions:\n  brom_drake:", manifest)
+            self.assertIn("  saphirapy:", manifest)
             self.assertIn("current_actors: []", manifest)
             self.assertIn("actor_variant: null", manifest)
             run_module_mock.assert_called_once()

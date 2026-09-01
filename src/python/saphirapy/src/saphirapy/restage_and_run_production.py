@@ -6,6 +6,7 @@ import json
 import sys
 import traceback
 import uuid
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from types import ModuleType
 
@@ -19,6 +20,14 @@ from saphirapy.syntax_tree.cast_member_option import CastMemberOption
 
 def _yaml_scalar(value: object) -> str:
     return json.dumps(value)
+
+
+def installed_package_version(distribution_name: str) -> str:
+    """Return the installed distribution version, or ``unknown`` if unavailable."""
+    try:
+        return version(distribution_name)
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def write_restaging_manifest(
@@ -38,6 +47,9 @@ def write_restaging_manifest(
         f"production_class: {_yaml_scalar(production_class_name)}",
         f"restaged_file: {_yaml_scalar(str(restaged_file))}",
         f"exit_code: {exit_code}",
+        "package_versions:",
+        f"  brom_drake: {_yaml_scalar(installed_package_version('brom_drake'))}",
+        f"  saphirapy: {_yaml_scalar(installed_package_version('saphirapy'))}",
         f"current_actors: {_yaml_scalar(current_actors)}",
     ]
     if actor_variant is None:
