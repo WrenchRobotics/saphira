@@ -27,6 +27,7 @@ jobs:
         with:
           path-to-example-run: src/examples/motion_planning1/chem.py
           python-version: ${{ env.PYTHON_VERSION }}
+          include-alternative-actors: 'true'
 
   restage-and-run:
     needs: prepare
