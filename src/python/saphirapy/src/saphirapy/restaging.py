@@ -10,6 +10,7 @@ import brom_drake.productions.all as brom_all
 NodePath = List[Tuple[str, Optional[int]]]
 
 from .syntax_tree.cast_call_reference import CastCallReference
+from .syntax_tree.cast_member_option import CastMemberOption
 from .utils import identify_algorithm_type
 
 class BromRestagingManager:
@@ -140,6 +141,126 @@ class BromRestagingManager:
         if isinstance(assignment.value.func, ast.Attribute):
             return assignment.value.func.attr
         return None
+
+    def replace_cast_member_in_ast(
+        self,
+        tree: ast.AST,
+        cast_ref: CastCallReference,
+        new_cast_option: CastMemberOption,
+    ) -> ast.AST:
+        """Replace one detected cast member with a registered alternative."""
+        out = deepcopy(tree)
+
+        call_node = self._node_at_path(out, cast_ref.node_path)
+        if not isinstance(call_node, ast.Call):
+            raise ValueError("The cast call path no longer resolves to an ast.Call.")
+        if cast_ref.cast_member_arg_index >= len(call_node.args):
+            raise ValueError("The cast call no longer contains the recorded cast member argument.")
+
+        instantiation_node = self._node_at_path(out, cast_ref.instantiation_node_path)
+        if not isinstance(instantiation_node, ast.Assign):
+            raise ValueError("The instantiation path no longer resolves to an ast.Assign.")
+        old_class_name = self._extract_class_name_from_instantiation(instantiation_node)
+
+        cast_member_expression = ast.parse(
+            f"{new_cast_option.variable_name}.{new_cast_option.method_to_call}",
+            mode="eval",
+        ).body
+        call_node.args[cast_ref.cast_member_arg_index] = cast_member_expression
+
+        new_instantiation_nodes = self._parse_code_to_ast(new_cast_option.instantiation_code)
+        self._replace_statement_at_path(
+            out,
+            cast_ref.instantiation_node_path,
+            new_instantiation_nodes,
+        )
+        self._add_imports_from_option(out, new_cast_option)
+        if old_class_name is not None:
+            self._remove_unused_import(out, old_class_name)
+
+        return ast.fix_missing_locations(out)
+
+    def _parse_code_to_ast(self, code_snippet: str) -> List[ast.stmt]:
+        """Parse an instantiation snippet into one or more statements."""
+        statements = ast.parse(code_snippet).body
+        if not statements:
+            raise ValueError("The replacement instantiation code must not be empty.")
+        return statements
+
+    def _replace_statement_at_path(
+        self,
+        tree: ast.AST,
+        statement_path: NodePath,
+        replacement_statements: List[ast.stmt],
+    ) -> None:
+        """Replace the statement at ``statement_path`` with ``replacement_statements``."""
+        if not statement_path:
+            raise ValueError("The instantiation path must identify a statement in a list field.")
+
+        field_name, statement_index = statement_path[-1]
+        if statement_index is None:
+            raise ValueError("The instantiation path must end at an indexed list field.")
+
+        parent = self._node_at_path(tree, statement_path[:-1])
+        statements = getattr(parent, field_name)
+        if not isinstance(statements, list):
+            raise ValueError("The instantiation path does not identify a statement list.")
+        statements[statement_index:statement_index + 1] = replacement_statements
+
+    def _add_imports_from_option(self, tree: ast.AST, option: CastMemberOption) -> None:
+        """Add option imports after the module docstring and existing imports."""
+        if not isinstance(tree, ast.Module):
+            raise ValueError("Cast-member replacement requires an ast.Module tree.")
+
+        imports = []
+        for import_statement in option.import_statements:
+            parsed_nodes = ast.parse(import_statement).body
+            if len(parsed_nodes) != 1 or not isinstance(parsed_nodes[0], (ast.Import, ast.ImportFrom)):
+                raise ValueError("Each option import must contain exactly one import statement.")
+            imports.append(parsed_nodes[0])
+
+        existing_imports = {
+            ast.dump(node, include_attributes=False)
+            for node in tree.body
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+        }
+        imports = [
+            node
+            for node in imports
+            if ast.dump(node, include_attributes=False) not in existing_imports
+        ]
+        if not imports:
+            return
+
+        insert_index = 1 if ast.get_docstring(tree, clean=False) is not None else 0
+        while insert_index < len(tree.body) and isinstance(tree.body[insert_index], (ast.Import, ast.ImportFrom)):
+            insert_index += 1
+        tree.body[insert_index:insert_index] = imports
+
+    def _remove_unused_import(self, tree: ast.AST, imported_name: str) -> None:
+        """Remove an import alias only when its bound name is no longer used."""
+        used_names = {
+            node.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+        }
+        if imported_name in used_names:
+            return
+
+        for node in tree.body[:]:
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            retained_aliases = [
+                alias
+                for alias in node.names
+                if (alias.asname or alias.name.split(".")[-1]) != imported_name
+            ]
+            if len(retained_aliases) == len(node.names):
+                continue
+            if retained_aliases:
+                node.names = retained_aliases
+            else:
+                tree.body.remove(node)
 
     def find_all_imported_production_class_names(self, tree: ast.AST) -> List[str]:
         """

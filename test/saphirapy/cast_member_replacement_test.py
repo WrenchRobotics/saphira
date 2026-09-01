@@ -279,5 +279,147 @@ class TestCastMemberOption(unittest.TestCase):
         self.assertIn("BiRRTConfig(max_time=10.0)", option.instantiation_code)
 
 
+class TestCastMemberReplacement(unittest.TestCase):
+    """Test Phase 3: AST replacement using a detected cast call."""
+
+    def setUp(self):
+        self.manager = BromRestagingManager(output_dir=Path("unused"))
+
+    def _replace(self, code: str, option: CastMemberOption) -> tuple[ast.Module, ast.Module]:
+        source_tree = ast.parse(code)
+        references = self.manager.find_easy_cast_and_build_calls(source_tree)
+        self.assertEqual(len(references), 1)
+        return source_tree, self.manager.replace_cast_member_in_ast(source_tree, references[0], option)
+
+    def test_replaces_assignment_and_cast_member_without_mutating_source(self):
+        source_tree, replacement_tree = self._replace(
+            """planner = RRTConnectPlanner(config)
+diagram, context = production.easy_cast_and_build(planner.plan, with_watcher=True)
+""",
+            CastMemberOption(
+                name="prm_star",
+                import_statements=["from planners import PRMStarPlanner"],
+                instantiation_code="prm_planner = PRMStarPlanner(config)",
+                variable_name="prm_planner",
+                method_to_call="plan_path",
+            ),
+        )
+
+        self.assertEqual(
+            ast.unparse(source_tree),
+            "planner = RRTConnectPlanner(config)\ndiagram, context = production.easy_cast_and_build(planner.plan, with_watcher=True)",
+        )
+        self.assertEqual(
+            ast.unparse(replacement_tree),
+            "from planners import PRMStarPlanner\nprm_planner = PRMStarPlanner(config)\ndiagram, context = production.easy_cast_and_build(prm_planner.plan_path, with_watcher=True)",
+        )
+        compile(replacement_tree, filename="<replacement>", mode="exec")
+
+    def test_removes_only_obsolete_planner_import(self):
+        source_tree, replacement_tree = self._replace(
+            '''"""A documented production script."""
+from legacy_planners import RRTConnectPlanner, RRTConnectPlannerConfig
+from helpers import report
+
+config = RRTConnectPlannerConfig()
+planner = RRTConnectPlanner(config)
+diagram, context = production.easy_cast_and_build(planner.plan)
+''',
+            CastMemberOption(
+                name="prm_star",
+                import_statements=["from new_planners import PRMStarPlanner"],
+                instantiation_code="prm_planner = PRMStarPlanner(config)",
+                variable_name="prm_planner",
+                method_to_call="plan_path",
+            ),
+        )
+
+        replacement_code = ast.unparse(replacement_tree)
+        self.assertTrue(ast.get_docstring(replacement_tree))
+        self.assertIn("from legacy_planners import RRTConnectPlannerConfig", replacement_code)
+        self.assertNotIn("RRTConnectPlanner,", replacement_code)
+        self.assertIn("from helpers import report", replacement_code)
+        self.assertIn("from new_planners import PRMStarPlanner", replacement_code)
+        self.assertEqual(ast.unparse(source_tree.body[1]), "from legacy_planners import RRTConnectPlanner, RRTConnectPlannerConfig")
+
+    def test_replaces_nested_assignment_with_multiple_statements(self):
+        _, replacement_tree = self._replace(
+            """def build(production):
+    planner = RRTConnectPlanner()
+    return production.easy_cast_and_build(planner.plan, with_watcher=False)
+""",
+            CastMemberOption(
+                name="bidirrt",
+                import_statements=["from planners import BiRRTConfig, BiRRTPlanner"],
+                instantiation_code="""new_config = BiRRTConfig(max_time=10.0)
+bidirrt_planner = BiRRTPlanner(config=new_config)""",
+                variable_name="bidirrt_planner",
+                method_to_call="execute",
+            ),
+        )
+
+        function_body = replacement_tree.body[1].body
+        self.assertEqual(ast.unparse(function_body[0]), "new_config = BiRRTConfig(max_time=10.0)")
+        self.assertEqual(ast.unparse(function_body[1]), "bidirrt_planner = BiRRTPlanner(config=new_config)")
+        self.assertEqual(
+            ast.unparse(function_body[2]),
+            "return production.easy_cast_and_build(bidirrt_planner.execute, with_watcher=False)",
+        )
+        compile(replacement_tree, filename="<replacement>", mode="exec")
+
+    def test_does_not_add_duplicate_import(self):
+        _, replacement_tree = self._replace(
+            """from planners import PRMStarPlanner
+planner = RRTConnectPlanner()
+diagram, context = production.easy_cast_and_build(planner.plan)
+""",
+            CastMemberOption(
+                name="prm_star",
+                import_statements=["from planners import PRMStarPlanner"],
+                instantiation_code="prm_planner = PRMStarPlanner()",
+                variable_name="prm_planner",
+                method_to_call="plan_path",
+            ),
+        )
+
+        self.assertEqual(ast.unparse(replacement_tree).count("from planners import PRMStarPlanner"), 1)
+
+    def test_rejects_empty_replacement_instantiation(self):
+        source_tree = ast.parse(
+            """planner = RRTConnectPlanner()
+diagram, context = production.easy_cast_and_build(planner.plan)
+"""
+        )
+        reference = self.manager.find_easy_cast_and_build_calls(source_tree)[0]
+        option = CastMemberOption(
+            name="empty",
+            import_statements=[],
+            instantiation_code="",
+            variable_name="replacement",
+            method_to_call="plan",
+        )
+
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            self.manager.replace_cast_member_in_ast(source_tree, reference, option)
+
+    def test_rejects_non_import_option_statement(self):
+        source_tree = ast.parse(
+            """planner = RRTConnectPlanner()
+diagram, context = production.easy_cast_and_build(planner.plan)
+"""
+        )
+        reference = self.manager.find_easy_cast_and_build_calls(source_tree)[0]
+        option = CastMemberOption(
+            name="invalid-import",
+            import_statements=["replacement = Planner()"],
+            instantiation_code="replacement = Planner()",
+            variable_name="replacement",
+            method_to_call="plan",
+        )
+
+        with self.assertRaisesRegex(ValueError, "exactly one import statement"):
+            self.manager.replace_cast_member_in_ast(source_tree, reference, option)
+
+
 if __name__ == "__main__":
     unittest.main()

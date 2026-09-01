@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "saphirapy"
+version = "0.0.0+placeholder"
+description = "A python library to assist with the benchmarking and testing of Drake-based robotics systems."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Kwesi Rutledge", email = "thesolitaryecrivain@gmail.com"}
+]
+keywords = ["drake", "robotics", "testing", "logging"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "brom_drake>0.5.5",
+    "drake==1.56.0",
+    "meshcat==0.3.2",
+    "loguru==0.7.3",
+    "matplotlib==3.10.8",
+    "networkx==3.6.1",
+    "numpy==2.4.1",
+    "pycollada==0.9.3",
+    "trimesh==4.11.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/WrenchRobotics/saphira"
+Repository = "https://github.com/WrenchRobotics/saphira"
+
+[project.scripts]
+saphira-detect-production-map = "saphirapy.detect_production_map:main"
+saphira-restage-and-run-production = "saphirapy.restage_and_run_production:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
