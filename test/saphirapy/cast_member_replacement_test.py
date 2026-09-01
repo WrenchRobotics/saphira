@@ -55,7 +55,7 @@ class TestCastMemberDetection(unittest.TestCase):
         self.assertGreater(len(cast_calls), 0)
 
         cast_call = cast_calls[0]
-        
+
         # Verify all required fields are present and non-None
         self.assertIsNotNone(cast_call.production_var)
         self.assertIsNotNone(cast_call.cast_member_expr)
@@ -106,7 +106,7 @@ y = 20
 """
         tree = ast.parse(code)
         assign_node, assign_path = self.manager._find_variable_instantiation(tree, "planner")
-        
+
         self.assertIsNotNone(assign_node)
         self.assertIsNotNone(assign_path)
         self.assertIsInstance(assign_node, ast.Assign)
@@ -120,7 +120,7 @@ y = 20
 """
         tree = ast.parse(code)
         assign_node, assign_path = self.manager._find_variable_instantiation(tree, "planner")
-        
+
         self.assertIsNone(assign_node)
         self.assertIsNone(assign_path)
 
@@ -129,7 +129,7 @@ y = 20
         code = "planner = RRTConnectPlanner()"
         tree = ast.parse(code)
         assign_node = tree.body[0]
-        
+
         class_name = self.manager._extract_class_name_from_instantiation(assign_node)
         self.assertEqual(class_name, "RRTConnectPlanner")
 
@@ -138,7 +138,7 @@ y = 20
         code = "planner = RRTConnectPlanner(arm, plant, config=cfg)"
         tree = ast.parse(code)
         assign_node = tree.body[0]
-        
+
         class_name = self.manager._extract_class_name_from_instantiation(assign_node)
         self.assertEqual(class_name, "RRTConnectPlanner")
 
@@ -147,7 +147,7 @@ y = 20
         code = "planner = algorithms.RRTConnectPlanner()"
         tree = ast.parse(code)
         assign_node = tree.body[0]
-        
+
         class_name = self.manager._extract_class_name_from_instantiation(assign_node)
         self.assertEqual(class_name, "RRTConnectPlanner")
 
@@ -156,7 +156,7 @@ y = 20
         code = "planner = get_planner()"
         tree = ast.parse(code)
         assign_node = tree.body[0]
-        
+
         class_name = self.manager._extract_class_name_from_instantiation(assign_node)
         self.assertEqual(class_name, "get_planner")
 
@@ -169,7 +169,7 @@ z = x + y
 """
         tree = ast.parse(code)
         cast_calls = self.manager.find_easy_cast_and_build_calls(tree)
-        
+
         self.assertEqual(len(cast_calls), 0)
 
     def test_multiple_easy_cast_and_build_calls(self):
@@ -189,7 +189,7 @@ diagram2, ctx2 = production2.easy_cast_and_build(planner2.plan_path, with_watche
 """
         tree = ast.parse(code)
         cast_calls = self.manager.find_easy_cast_and_build_calls(tree)
-        
+
         self.assertEqual(len(cast_calls), 2)
         self.assertEqual([call.production_var for call in cast_calls], ["production1", "production2"])
         self.assertEqual([call.cast_member_type for call in cast_calls], ["motion_planning_rrt", "motion_planning_rrt"])
@@ -203,7 +203,7 @@ diagram, ctx = production.easy_cast_and_build(planner.plan, with_watcher=True, e
 """
         tree = ast.parse(code)
         cast_calls = self.manager.find_easy_cast_and_build_calls(tree)
-        
+
         self.assertEqual(len(cast_calls), 1)
         self.assertEqual(cast_calls[0].call_kwargs.keys(), {"with_watcher", "extra_arg"})
 
@@ -215,7 +215,7 @@ diagram, ctx = production.easy_cast_and_build(lambda: print("test"))
 """
         tree = ast.parse(code)
         cast_calls = self.manager.find_easy_cast_and_build_calls(tree)
-        
+
         self.assertEqual(cast_calls, [])
 
     def test_cast_call_with_bare_callable_is_not_detected(self):
