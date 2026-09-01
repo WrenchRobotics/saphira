@@ -35,14 +35,14 @@ def write_restaging_manifest(
     target_file: Path,
     production_class_name: str,
     restaged_file: Path,
-    variant_name: str,
+    casted_production_name: str,
     current_actors: list[dict[str, str | int | None]],
     actor_variant: dict | None,
     exit_code: int,
 ) -> None:
     """Write the exact restaging inputs and generated file location as YAML."""
     lines = [
-        f"variant_name: {_yaml_scalar(variant_name)}",
+        f"casted_production_name: {_yaml_scalar(casted_production_name)}",
         f"source_file: {_yaml_scalar(str(target_file))}",
         f"production_class: {_yaml_scalar(production_class_name)}",
         f"restaged_file: {_yaml_scalar(str(restaged_file))}",
@@ -139,7 +139,7 @@ def restage_and_run_one(
     production_class_name: str,
     output_dir: Path,
     actor_variant: dict | None = None,
-    variant_name: str | None = None,
+    casted_production_name: str | None = None,
 ) -> dict:
     manager = BromRestagingManager(output_dir=output_dir)
     parsed_tree = ast.parse(target_file.read_text())
@@ -184,18 +184,18 @@ def restage_and_run_one(
     new_tree = _append_production_return_to_main(new_tree)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    file_variant_name = variant_name or production_class_name
-    restaged_file = output_dir / f"{target_file.stem}_{file_variant_name}.py"
+    file_casted_production_name = casted_production_name or production_class_name
+    restaged_file = output_dir / f"{target_file.stem}_{file_casted_production_name}.py"
     restaged_file.write_text(ast.unparse(new_tree))
 
     production, exit_code = _run_restaged_module(restaged_file)
-    manifest_path = output_dir / f"{file_variant_name}.yaml"
+    manifest_path = output_dir / f"{file_casted_production_name}.yaml"
     write_restaging_manifest(
         manifest_path,
         target_file,
         production_class_name,
         restaged_file,
-        file_variant_name,
+        file_casted_production_name,
         current_actors,
         actor_variant,
         exit_code,
@@ -206,8 +206,8 @@ def restage_and_run_one(
         "restaging_manifest": str(manifest_path),
         "exit_code": int(exit_code),
     }
-    if variant_name is not None:
-        result["variant_name"] = variant_name
+    if casted_production_name is not None:
+        result["casted_production_name"] = casted_production_name
     if actor_variant is not None:
         result["actor_variant"] = actor_variant["name"]
 
@@ -220,14 +220,14 @@ def restage_and_run_one(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate and run one restaged production variant."
+        description="Generate and run one restaged casted production."
     )
     parser.add_argument("--target-file", type=Path, required=True)
     parser.add_argument("--production-class", type=str, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--result-json", type=Path, required=False)
     parser.add_argument("--actor-variant-json", type=str, required=False)
-    parser.add_argument("--variant-name", type=str, required=False)
+    parser.add_argument("--casted-production-name", type=str, required=False)
     args = parser.parse_args()
 
     result = restage_and_run_one(
@@ -235,7 +235,7 @@ def main() -> int:
         production_class_name=args.production_class,
         output_dir=args.output_dir.resolve(),
         actor_variant=(json.loads(args.actor_variant_json) if args.actor_variant_json else None),
-        variant_name=args.variant_name,
+        casted_production_name=args.casted_production_name,
     )
 
     if args.result_json is not None:

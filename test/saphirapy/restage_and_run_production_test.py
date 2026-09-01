@@ -47,7 +47,7 @@ class TestRestageAndRunProduction(unittest.TestCase):
             self.assertEqual(result["metrics"], {"Final Configuration Error": 0.25})
             self.assertTrue(Path(result["restaged_file"]).exists())
             manifest = Path(result["restaging_manifest"]).read_text()
-            self.assertIn('variant_name: "ChemLab1"', manifest)
+            self.assertIn('casted_production_name: "ChemLab1"', manifest)
             self.assertIn('production_class: "ChemLab1"', manifest)
             self.assertIn("package_versions:\n  brom_drake:", manifest)
             self.assertIn("  saphirapy:", manifest)
@@ -99,13 +99,13 @@ class TestRestageAndRunProduction(unittest.TestCase):
                     production_class_name="ChemLab1",
                     output_dir=tmp_path / "out",
                     actor_variant=actor_variant,
-                    variant_name="actor-bidirectional_rrt-0",
+                    casted_production_name="actor-bidirectional_rrt-0",
                 )
 
             self.assertEqual(result["actor_variant"], "bidirectional_rrt")
-            self.assertEqual(result["variant_name"], "actor-bidirectional_rrt-0")
+            self.assertEqual(result["casted_production_name"], "actor-bidirectional_rrt-0")
             manifest = Path(result["restaging_manifest"]).read_text()
-            self.assertIn('variant_name: "actor-bidirectional_rrt-0"', manifest)
+            self.assertIn('casted_production_name: "actor-bidirectional_rrt-0"', manifest)
             self.assertIn('expression": "planner.plan"', manifest)
             self.assertIn('name: "bidirectional_rrt"', manifest)
             manager.replace_cast_member_in_ast.assert_called_once()

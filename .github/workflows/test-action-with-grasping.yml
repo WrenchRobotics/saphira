@@ -46,7 +46,7 @@ jobs:
         with:
           target-file: ${{ needs.prepare.outputs.example-file }}
           production-class: ${{ needs.prepare.outputs.detected-production }}
-          variant-name: baseline-${{ needs.prepare.outputs.detected-production }}
+          casted-production-name: baseline-${{ needs.prepare.outputs.detected-production }}
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Upload baseline result artifact
@@ -71,13 +71,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Run and evaluate production variant
+      - name: Run and evaluate casted production
         id: run-evaluate
         uses: ./.github/actions/saphira-run-evaluate
         with:
           target-file: ${{ needs.prepare.outputs.example-file }}
           production-class: ${{ matrix.production }}
-          variant-name: production-${{ matrix.production }}
+          casted-production-name: production-${{ matrix.production }}
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Upload matrix result artifact
@@ -102,14 +102,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Run and evaluate actor variant
+      - name: Run and evaluate casted production
         id: run-evaluate
         uses: ./.github/actions/saphira-run-evaluate
         with:
           target-file: ${{ needs.prepare.outputs.example-file }}
           production-class: ${{ needs.prepare.outputs.detected-production }}
           actor-variant-json: ${{ toJSON(matrix.actor) }}
-          variant-name: actor-${{ matrix.actor.name }}-${{ matrix.actor.cast_call_index }}
+          casted-production-name: actor-${{ matrix.actor.name }}-${{ matrix.actor.cast_call_index }}
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Upload actor result artifact

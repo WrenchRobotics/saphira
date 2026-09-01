@@ -5,8 +5,8 @@ import unittest
 
 from saphirapy.detect_production_map import detect_production_mapping
 from saphirapy.github_actions_contracts import (
+    build_casted_production_outputs,
     build_summary,
-    build_variant_outputs,
     finalize_result_payload,
     find_alternative_actors_for_production,
     parse_detection_outputs,
@@ -63,14 +63,14 @@ class TestGitHubActionContracts(unittest.TestCase):
             )
         )
 
-    def test_variant_outputs_keep_baseline_separate_from_opt_in_variants(self):
+    def test_casted_production_outputs_keep_baseline_separate_from_opt_in_variants(self):
         target_file = self.data_directory / "motion_planning" / "chem_lab_demo.py"
         detection_payload = json.dumps(detect_production_mapping(target_file))
 
-        disabled_outputs = build_variant_outputs(
+        disabled_outputs = build_casted_production_outputs(
             detection_payload, target_file, False, False
         )
-        enabled_outputs = build_variant_outputs(
+        enabled_outputs = build_casted_production_outputs(
             detection_payload, target_file, True, True
         )
 
@@ -84,6 +84,51 @@ class TestGitHubActionContracts(unittest.TestCase):
         self.assertEqual(
             [actor["name"] for actor in json.loads(enabled_outputs["alternative-actors-json"])],
             ["bidirectional_rrt", "bidirectional_rrt_connect"],
+        )
+
+    def test_casted_productions_json_combines_productions_and_actors(self):
+        target_file = self.data_directory / "motion_planning" / "chem_lab_demo.py"
+        detection_payload = json.dumps(detect_production_mapping(target_file))
+
+        disabled_outputs = build_casted_production_outputs(
+            detection_payload, target_file, False, False
+        )
+        enabled_outputs = build_casted_production_outputs(
+            detection_payload, target_file, True, True
+        )
+
+        disabled_casted_productions = json.loads(disabled_outputs["casted-productions-json"])
+        self.assertEqual(
+            [casted_production["casted-production-name"] for casted_production in disabled_casted_productions],
+            ["production-ChemLab1", "production-ShelfPlanning1"],
+        )
+        self.assertTrue(
+            all(casted_production["actor-variant-json"] == "" for casted_production in disabled_casted_productions)
+        )
+
+        enabled_casted_productions = json.loads(enabled_outputs["casted-productions-json"])
+        self.assertEqual(
+            [casted_production["casted-production-name"] for casted_production in enabled_casted_productions],
+            [
+                "production-ChemLab1",
+                "production-ShelfPlanning1",
+                "actor-bidirectional_rrt-0",
+                "actor-bidirectional_rrt_connect-0",
+            ],
+        )
+        actor_casted_productions = [
+            casted_production
+            for casted_production in enabled_casted_productions
+            if casted_production["actor-variant-json"]
+        ]
+        self.assertTrue(
+            all(casted_production["production-class"] == "ChemLab1" for casted_production in actor_casted_productions)
+        )
+        self.assertTrue(
+            all(
+                json.loads(casted_production["actor-variant-json"])["cast_call_index"] == 0
+                for casted_production in actor_casted_productions
+            )
         )
 
     def test_result_payloads_feed_combined_summary(self):

@@ -1,6 +1,6 @@
 name: Saphira Run and Evaluate
 
-description: Restage and run a single production variant, then emit metrics for that run.
+description: Restage and run a single casted production, then emit metrics for that run.
 
 inputs:
   target-file:
@@ -13,7 +13,7 @@ inputs:
     description: JSON definition of one replacement actor variant.
     required: false
     default: ''
-  variant-name:
+  casted-production-name:
     description: Unique name used for the restaged file and result artifact.
     required: false
     default: ''
@@ -65,11 +65,11 @@ runs:
       run: |
         set -euo pipefail
         mkdir -p "${{ inputs.result-directory }}"
-        variant_name="${{ inputs.variant-name }}"
-        if [ -z "$variant_name" ]; then
-          variant_name="${{ inputs.production-class }}"
+        casted_production_name="${{ inputs.casted-production-name }}"
+        if [ -z "$casted_production_name" ]; then
+          casted_production_name="${{ inputs.production-class }}"
         fi
-        result_json_path="${{ inputs.result-directory }}/$variant_name.json"
+        result_json_path="${{ inputs.result-directory }}/$casted_production_name.json"
 
         start_epoch="$(python -c 'import time; print(time.time())')"
 
@@ -83,7 +83,7 @@ runs:
           --production-class "${{ inputs.production-class }}" \
           --output-dir "${{ inputs.restaged-output-directory }}" \
           --result-json "$result_json_path" \
-          --variant-name "$variant_name" \
+          --casted-production-name "$casted_production_name" \
           "${actor_arguments[@]}"
         exit_code=$?
         set -e
@@ -97,9 +97,9 @@ runs:
           "$exit_code" \
           "$duration_seconds" \
           "" \
-          "$variant_name"
+          "$casted_production_name"
 
-        metrics_body="### Variant Metrics\n- Variant: $variant_name\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code\n- Duration (s): $duration_seconds"
+        metrics_body="### Casted Production Metrics\n- Casted Production: $casted_production_name\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code\n- Duration (s): $duration_seconds"
 
         echo "result-json-path=$result_json_path" >> "$GITHUB_OUTPUT"
         echo "restaging-bundle-path=${{ inputs.restaged-output-directory }}" >> "$GITHUB_OUTPUT"
