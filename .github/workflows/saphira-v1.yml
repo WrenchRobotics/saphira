@@ -14,7 +14,7 @@ jobs:
     outputs:
       example-file: ${{ steps.detect.outputs.example-file }}
       detected-parent: ${{ steps.detect.outputs.detected-production-parent }}
-      related-productions-json: ${{ steps.detect.outputs.related-productions-json }}
+      cast-productions-json: ${{ steps.detect.outputs.cast-productions-json }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -27,40 +27,47 @@ jobs:
         with:
           path-to-example-run: src/examples/motion_planning1/chem.py
           python-version: ${{ env.PYTHON_VERSION }}
+          include-alternative-actors: 'true'
 
   restage-and-run:
     needs: prepare
-    if: needs.prepare.outputs.related-productions-json != '[]'
+    if: needs.prepare.outputs.cast-productions-json != '[]'
     runs-on: ubuntu-latest
     name: Restage and run matrix
     strategy:
       fail-fast: false
       matrix:
-        production: ${{ fromJSON(needs.prepare.outputs.related-productions-json) }}
+        cast_production: ${{ fromJSON(needs.prepare.outputs.cast-productions-json) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Run and evaluate production variant
+      - name: Run and evaluate cast production
         id: run-evaluate
         uses: ./.github/actions/saphira-run-evaluate
         with:
           target-file: ${{ needs.prepare.outputs.example-file }}
-          production-class: ${{ matrix.production }}
+          production-class: ${{ matrix.cast_production.production-class }}
+          actor-variant-json: ${{ matrix.cast_production.actor-variant-json }}
+          cast-production-name: ${{ matrix.cast_production.cast-production-name }}
           python-version: ${{ env.PYTHON_VERSION }}
+          run-timeout-seconds: 300
 
       - name: Upload matrix result artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: matrix-result-${{ matrix.production }}
-          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+          name: ${{ matrix.cast_production.artifact-name }}
+          path: |
+            ${{ steps.run-evaluate.outputs.result-json-path }}
+            ${{ steps.run-evaluate.outputs.restaging-bundle-path }}
 
   summarize:
     needs: [prepare, restage-and-run]
     if: always()
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       pull-requests: write
     steps:
@@ -68,7 +75,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Download matrix result artifacts
-        if: needs.prepare.outputs.related-productions-json != '[]'
+        if: needs.prepare.outputs.cast-productions-json != '[]'
         uses: actions/download-artifact@v4
         with:
           path: productions/matrix-results
@@ -84,7 +91,6 @@ jobs:
           allow-comment-update: >-
             ${{
               needs.prepare.result == 'success' &&
-              needs.prepare.outputs.related-productions-json != '[]' &&
-              needs.restage-and-run.result == 'success'
+              (needs.prepare.outputs.cast-productions-json == '[]' || needs.restage-and-run.result == 'success')
             }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,6 @@
 name: Saphira Run and Evaluate
 
-description: Restage and run a single production variant, then emit metrics for that run.
+description: Restage and run a single cast production, then emit metrics for that run.
 
 inputs:
   target-file:
@@ -9,6 +9,14 @@ inputs:
   production-class:
     description: Production class name to restage into the target file.
     required: true
+  actor-variant-json:
+    description: JSON definition of one replacement actor variant.
+    required: false
+    default: ''
+  cast-production-name:
+    description: Unique name used for the restaged file and result artifact.
+    required: false
+    default: ''
   python-version:
     description: Python version to use.
     required: false
@@ -21,11 +29,18 @@ inputs:
     description: Directory where per-run result json is written.
     required: false
     default: productions/matrix-results
+  run-timeout-seconds:
+    description: Maximum seconds for restaging and simulation execution before marking the entry as failed.
+    required: false
+    default: '900'
 
 outputs:
   result-json-path:
     description: Path to the generated result JSON for this run.
     value: ${{ steps.run-production.outputs.result-json-path }}
+  restaging-bundle-path:
+    description: Directory containing the generated Python file and YAML restaging manifest.
+    value: ${{ steps.run-production.outputs.restaging-bundle-path }}
   exit-code:
     description: Exit code from running the restaged production.
     value: ${{ steps.run-production.outputs.exit-code }}
@@ -54,16 +69,32 @@ runs:
       run: |
         set -euo pipefail
         mkdir -p "${{ inputs.result-directory }}"
-        result_json_path="${{ inputs.result-directory }}/${{ inputs.production-class }}.json"
+        cast_production_name="${{ inputs.cast-production-name }}"
+        if [ -z "$cast_production_name" ]; then
+          cast_production_name="${{ inputs.production-class }}"
+        fi
+        result_json_path="${{ inputs.result-directory }}/$cast_production_name.json"
+        run_timeout_seconds="${{ inputs.run-timeout-seconds }}"
+        if ! [[ "$run_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+          echo "run-timeout-seconds must be a positive integer; received $run_timeout_seconds" >&2
+          exit 1
+        fi
 
         start_epoch="$(python -c 'import time; print(time.time())')"
 
         set +e
-        saphira-restage-and-run-production \
+        actor_arguments=()
+        if [ -n "$ACTOR_VARIANT_JSON" ]; then
+          actor_arguments+=(--actor-variant-json "$ACTOR_VARIANT_JSON")
+        fi
+        timeout --signal=TERM --kill-after=30s "${run_timeout_seconds}s" \
+          saphira-restage-and-run-production \
           --target-file "${{ inputs.target-file }}" \
           --production-class "${{ inputs.production-class }}" \
           --output-dir "${{ inputs.restaged-output-directory }}" \
-          --result-json "$result_json_path"
+          --result-json "$result_json_path" \
+          --cast-production-name "$cast_production_name" \
+          "${actor_arguments[@]}"
         exit_code=$?
         set -e
 
@@ -75,14 +106,18 @@ runs:
           "${{ inputs.production-class }}" \
           "$exit_code" \
           "$duration_seconds" \
-          ""
+          "" \
+          "$cast_production_name"
 
-        metrics_body="### Variant Metrics\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code\n- Duration (s): $duration_seconds"
+        metrics_body="### Cast Production Metrics\n- Cast Production: $cast_production_name\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code\n- Duration (s): $duration_seconds"
 
         echo "result-json-path=$result_json_path" >> "$GITHUB_OUTPUT"
+        echo "restaging-bundle-path=${{ inputs.restaged-output-directory }}" >> "$GITHUB_OUTPUT"
         echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
         {
           echo "metrics-markdown<<EOF"
           printf '%b\n' "$metrics_body"
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
+      env:
+        ACTOR_VARIANT_JSON: ${{ inputs.actor-variant-json }}
