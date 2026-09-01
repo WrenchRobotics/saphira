@@ -55,7 +55,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: matrix-result-${{ matrix.production }}
-          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+          path: |
+            ${{ steps.run-evaluate.outputs.result-json-path }}
+            ${{ steps.run-evaluate.outputs.restaging-bundle-path }}
 
   summarize:
     needs: [prepare, restage-and-run]
