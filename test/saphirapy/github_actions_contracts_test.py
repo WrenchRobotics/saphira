@@ -160,6 +160,21 @@ class TestGitHubActionContracts(unittest.TestCase):
             self.assertNotIn("productions/restaged/shelf_planning1.py", summary)
             self.assertIn("Totals: 1 passed, 1 failed", summary)
 
+    def test_timeout_exit_code_is_recorded_in_result_payload(self):
+        with TemporaryDirectory() as tmpdir:
+            result_path = Path(tmpdir) / "timed-out.json"
+
+            payload = finalize_result_payload(
+                result_path,
+                "ChemLab1",
+                124,
+                900.0,
+                "productions/restaged/chem_lab.py",
+            )
+
+            self.assertTrue(payload["timed_out"])
+            self.assertTrue(json.loads(result_path.read_text())["timed_out"])
+
     def test_summary_includes_additional_metrics_when_present(self):
         with TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)

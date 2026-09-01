@@ -29,6 +29,10 @@ inputs:
     description: Directory where per-run result json is written.
     required: false
     default: productions/matrix-results
+  run-timeout-seconds:
+    description: Maximum seconds for restaging and simulation execution before marking the entry as failed.
+    required: false
+    default: '900'
 
 outputs:
   result-json-path:
@@ -70,6 +74,11 @@ runs:
           cast_production_name="${{ inputs.production-class }}"
         fi
         result_json_path="${{ inputs.result-directory }}/$cast_production_name.json"
+        run_timeout_seconds="${{ inputs.run-timeout-seconds }}"
+        if ! [[ "$run_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+          echo "run-timeout-seconds must be a positive integer; received $run_timeout_seconds" >&2
+          exit 1
+        fi
 
         start_epoch="$(python -c 'import time; print(time.time())')"
 
@@ -78,7 +87,8 @@ runs:
         if [ -n "$ACTOR_VARIANT_JSON" ]; then
           actor_arguments+=(--actor-variant-json "$ACTOR_VARIANT_JSON")
         fi
-        saphira-restage-and-run-production \
+        timeout --signal=TERM --kill-after=30s "${run_timeout_seconds}s" \
+          saphira-restage-and-run-production \
           --target-file "${{ inputs.target-file }}" \
           --production-class "${{ inputs.production-class }}" \
           --output-dir "${{ inputs.restaged-output-directory }}" \

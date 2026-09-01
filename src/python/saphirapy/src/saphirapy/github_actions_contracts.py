@@ -181,6 +181,7 @@ def finalize_result_payload(
     payload.setdefault("restaged_file", restaged_file_default)
     payload["exit_code"] = int(exit_code)
     payload["duration_seconds"] = float(duration_seconds)
+    payload["timed_out"] = exit_code == 124
     if cast_production_name is not None:
         payload["cast_production_name"] = cast_production_name
 
