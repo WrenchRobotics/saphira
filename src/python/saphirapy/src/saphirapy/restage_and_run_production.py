@@ -17,6 +17,39 @@ from saphirapy.restaging import BromRestagingManager
 from saphirapy.syntax_tree.cast_member_option import CastMemberOption
 
 
+def _yaml_scalar(value: object) -> str:
+    return json.dumps(value)
+
+
+def write_restaging_manifest(
+    manifest_path: Path,
+    target_file: Path,
+    production_class_name: str,
+    restaged_file: Path,
+    variant_name: str,
+    current_actors: list[dict[str, str | int | None]],
+    actor_variant: dict | None,
+    exit_code: int,
+) -> None:
+    """Write the exact restaging inputs and generated file location as YAML."""
+    lines = [
+        f"variant_name: {_yaml_scalar(variant_name)}",
+        f"source_file: {_yaml_scalar(str(target_file))}",
+        f"production_class: {_yaml_scalar(production_class_name)}",
+        f"restaged_file: {_yaml_scalar(str(restaged_file))}",
+        f"exit_code: {exit_code}",
+        f"current_actors: {_yaml_scalar(current_actors)}",
+    ]
+    if actor_variant is None:
+        lines.append("actor_variant: null")
+    else:
+        lines.append("actor_variant:")
+        for key, value in actor_variant.items():
+            lines.append(f"  {key}: {_yaml_scalar(value)}")
+
+    manifest_path.write_text("\n".join(lines) + "\n")
+
+
 def _append_production_return_to_main(tree: ast.AST) -> ast.AST:
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "main":
@@ -112,9 +145,20 @@ def restage_and_run_one(
         raise ValueError(f"Could not resolve production class named {production_class_name}.")
 
     new_tree = manager.replace_production_in_ast(parsed_tree, production_ref, alt_production)
+    cast_calls = manager.find_easy_cast_and_build_calls(parsed_tree)
+    current_actors = [
+        {
+            "cast_call_index": index,
+            "expression": cast_call.cast_member_expr,
+            "class_name": manager._extract_class_name_from_instantiation(
+                cast_call.instantiation_node
+            ),
+            "actor_type": cast_call.cast_member_type,
+        }
+        for index, cast_call in enumerate(cast_calls)
+    ]
     if actor_variant is not None:
         cast_call_index = int(actor_variant["cast_call_index"])
-        cast_calls = manager.find_easy_cast_and_build_calls(parsed_tree)
         if cast_call_index >= len(cast_calls):
             raise ValueError(f"No cast call exists at index {cast_call_index}.")
         actor_option = CastMemberOption(
@@ -133,9 +177,21 @@ def restage_and_run_one(
     restaged_file.write_text(ast.unparse(new_tree))
 
     production, exit_code = _run_restaged_module(restaged_file)
+    manifest_path = output_dir / f"{file_variant_name}.yaml"
+    write_restaging_manifest(
+        manifest_path,
+        target_file,
+        production_class_name,
+        restaged_file,
+        file_variant_name,
+        current_actors,
+        actor_variant,
+        exit_code,
+    )
     result = {
         "production_class": production_class_name,
         "restaged_file": str(restaged_file),
+        "restaging_manifest": str(manifest_path),
         "exit_code": int(exit_code),
     }
     if variant_name is not None:

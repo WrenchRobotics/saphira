@@ -34,6 +34,9 @@ outputs:
   result-json-path:
     description: Path to the generated result JSON for this run.
     value: ${{ steps.run-production.outputs.result-json-path }}
+  restaging-bundle-path:
+    description: Directory containing the generated Python file and YAML restaging manifest.
+    value: ${{ steps.run-production.outputs.restaging-bundle-path }}
   exit-code:
     description: Exit code from running the restaged production.
     value: ${{ steps.run-production.outputs.exit-code }}
@@ -99,6 +102,7 @@ runs:
         metrics_body="### Variant Metrics\n- Variant: $variant_name\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code\n- Duration (s): $duration_seconds"
 
         echo "result-json-path=$result_json_path" >> "$GITHUB_OUTPUT"
+        echo "restaging-bundle-path=${{ inputs.restaged-output-directory }}" >> "$GITHUB_OUTPUT"
         echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
         {
           echo "metrics-markdown<<EOF"

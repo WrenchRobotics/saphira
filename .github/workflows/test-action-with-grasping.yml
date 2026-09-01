@@ -54,7 +54,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: baseline-result
-          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+          path: |
+            ${{ steps.run-evaluate.outputs.result-json-path }}
+            ${{ steps.run-evaluate.outputs.restaging-bundle-path }}
 
   run-alternative-productions:
     needs: prepare
@@ -83,7 +85,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: production-result-${{ matrix.production }}
-          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+          path: |
+            ${{ steps.run-evaluate.outputs.result-json-path }}
+            ${{ steps.run-evaluate.outputs.restaging-bundle-path }}
 
   run-alternative-actors:
     needs: prepare
@@ -113,7 +117,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: actor-result-${{ matrix.actor.name }}-${{ matrix.actor.cast_call_index }}
-          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+          path: |
+            ${{ steps.run-evaluate.outputs.result-json-path }}
+            ${{ steps.run-evaluate.outputs.restaging-bundle-path }}
 
   summarize:
     needs: [prepare, run-baseline, run-alternative-productions, run-alternative-actors]

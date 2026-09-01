@@ -46,6 +46,11 @@ class TestRestageAndRunProduction(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(result["metrics"], {"Final Configuration Error": 0.25})
             self.assertTrue(Path(result["restaged_file"]).exists())
+            manifest = Path(result["restaging_manifest"]).read_text()
+            self.assertIn('variant_name: "ChemLab1"', manifest)
+            self.assertIn('production_class: "ChemLab1"', manifest)
+            self.assertIn("current_actors: []", manifest)
+            self.assertIn("actor_variant: null", manifest)
             run_module_mock.assert_called_once()
             collect_metrics_mock.assert_called_once_with(fake_production)
 
@@ -56,7 +61,11 @@ class TestRestageAndRunProduction(unittest.TestCase):
             target_file.write_text("def main():\n    return None\n")
 
             fake_ref = SimpleNamespace(production_class=object)
-            fake_cast_call = SimpleNamespace()
+            fake_cast_call = SimpleNamespace(
+                cast_member_expr="planner.plan",
+                instantiation_node=ast.parse("planner = Planner()").body[0],
+                cast_member_type="motion_planning_rrt",
+            )
             rewritten_tree = ast.parse("def main():\n    production = object()\n")
             actor_variant = {
                 "cast_call_index": 0,
@@ -79,6 +88,7 @@ class TestRestageAndRunProduction(unittest.TestCase):
                 manager = manager_cls.return_value
                 manager.find_production_instances.return_value = [fake_ref]
                 manager.find_easy_cast_and_build_calls.return_value = [fake_cast_call]
+                manager._extract_class_name_from_instantiation.return_value = "Planner"
                 manager.replace_production_in_ast.return_value = rewritten_tree
                 manager.replace_cast_member_in_ast.return_value = rewritten_tree
 
@@ -92,6 +102,10 @@ class TestRestageAndRunProduction(unittest.TestCase):
 
             self.assertEqual(result["actor_variant"], "bidirectional_rrt")
             self.assertEqual(result["variant_name"], "actor-bidirectional_rrt-0")
+            manifest = Path(result["restaging_manifest"]).read_text()
+            self.assertIn('variant_name: "actor-bidirectional_rrt-0"', manifest)
+            self.assertIn('expression": "planner.plan"', manifest)
+            self.assertIn('name: "bidirectional_rrt"', manifest)
             manager.replace_cast_member_in_ast.assert_called_once()
 
 
