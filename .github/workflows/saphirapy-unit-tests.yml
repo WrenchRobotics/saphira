@@ -36,7 +36,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: src/python/saphirapy/requirements.txt
+          cache-dependency-path: src/python/saphirapy/pyproject.toml
 
       - name: Install saphirapy and test runner
         run: python -m pip install --editable src/python/saphirapy pytest
