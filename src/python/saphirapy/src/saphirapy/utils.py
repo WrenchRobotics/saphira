@@ -1,5 +1,32 @@
 from .productions.relationships import RELATED_PRODUCTIONS
 
+def identify_algorithm_type(class_name: str) -> str:
+    """
+    Identify the algorithm type from a class name.
+    
+    Maps algorithm class names to their algorithm types, which are used as keys
+    in the CAST_MEMBER_ALTERNATIVES registry.
+    
+    Args:
+        class_name: str
+            The class name of the algorithm (e.g., "RRTConnectPlanner", "PRMStarPlanner")
+    
+    Returns:
+        str: The algorithm type (e.g., "motion_planning_rrt", "grasp_planning")
+    
+    Raises:
+        ValueError: If the class name is not recognized
+    """
+    # Motion planning algorithms
+    if class_name in ("RRTConnectPlanner", "PRMStarPlanner", "BiRRTPlanner"):
+        return "motion_planning_rrt"
+    
+    # Grasp planning algorithms
+    if class_name in ("GraspPlannerDex", "GraspPlannerSuction"):
+        return "grasp_planning"
+    
+    # If we don't recognize the class, raise an error
+    raise ValueError(f"Unknown algorithm class: {class_name}")
 def find_all_alternative_productions(production_class: type) -> list[type]:
     """
     **Description**

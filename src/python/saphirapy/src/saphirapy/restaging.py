@@ -7,8 +7,10 @@ from .syntax_tree.production_reference import ProductionReference
 from typing import Dict, Iterator, List, Optional, Tuple
 from .utils import find_all_alternative_productions
 import brom_drake.productions.all as brom_all
-
 NodePath = List[Tuple[str, Optional[int]]]
+
+from .syntax_tree.cast_call_reference import CastCallReference
+from .utils import identify_algorithm_type
 
 class BromRestagingManager:
     """
@@ -56,6 +58,88 @@ class BromRestagingManager:
             value = getattr(node, field_name)
             node = value if index is None else value[index]
         return node
+
+    def find_easy_cast_and_build_calls(self, tree: ast.AST) -> List[CastCallReference]:
+        """Find supported ``easy_cast_and_build()`` calls in ``tree``."""
+        cast_calls: List[CastCallReference] = []
+
+        for node, node_path in self._iter_nodes_with_paths(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not isinstance(node.func, ast.Attribute) or node.func.attr != "easy_cast_and_build":
+                continue
+            if not isinstance(node.func.value, ast.Name) or not node.args:
+                continue
+
+            cast_member_arg = node.args[0]
+            if not isinstance(cast_member_arg, ast.Attribute):
+                continue
+            base_variable_name = self._extract_base_variable(cast_member_arg)
+            if base_variable_name is None:
+                continue
+
+            instantiation_node, instantiation_node_path = self._find_variable_instantiation(
+                tree, base_variable_name
+            )
+            if instantiation_node is None or instantiation_node_path is None:
+                continue
+
+            class_name = self._extract_class_name_from_instantiation(instantiation_node)
+            if class_name is None:
+                continue
+
+            try:
+                algorithm_type = identify_algorithm_type(class_name)
+            except ValueError:
+                algorithm_type = None
+
+            call_kwargs = {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg}
+            cast_calls.append(
+                CastCallReference(
+                    production_var=node.func.value.id,
+                    cast_member_arg_index=0,
+                    cast_member_expr=ast.unparse(cast_member_arg),
+                    cast_member_type=algorithm_type,
+                    base_variable_name=base_variable_name,
+                    instantiation_node=instantiation_node,
+                    instantiation_node_path=instantiation_node_path,
+                    call_args=node.args,
+                    call_kwargs=call_kwargs,
+                    node=node,
+                    node_path=node_path,
+                )
+            )
+
+        return cast_calls
+
+    def _extract_base_variable(self, expression: ast.expr) -> Optional[str]:
+        """Return the leftmost variable of a name or attribute expression."""
+        if isinstance(expression, ast.Name):
+            return expression.id
+        if isinstance(expression, ast.Attribute):
+            return self._extract_base_variable(expression.value)
+        return None
+
+    def _find_variable_instantiation(
+        self, tree: ast.AST, variable_name: str
+    ) -> Tuple[Optional[ast.Assign], Optional[NodePath]]:
+        """Return the assignment that defines ``variable_name``, when present."""
+        for node, node_path in self._iter_nodes_with_paths(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            if any(isinstance(target, ast.Name) and target.id == variable_name for target in node.targets):
+                return node, node_path
+        return None, None
+
+    def _extract_class_name_from_instantiation(self, assignment: ast.Assign) -> Optional[str]:
+        """Return the constructor name for an assignment such as ``planner = Planner()``."""
+        if not isinstance(assignment.value, ast.Call):
+            return None
+        if isinstance(assignment.value.func, ast.Name):
+            return assignment.value.func.id
+        if isinstance(assignment.value.func, ast.Attribute):
+            return assignment.value.func.attr
+        return None
 
     def find_all_imported_production_class_names(self, tree: ast.AST) -> List[str]:
         """
