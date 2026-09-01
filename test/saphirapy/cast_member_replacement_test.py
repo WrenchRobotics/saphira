@@ -8,6 +8,7 @@ import pydrake.all
 # Internal imports
 from saphirapy.restaging import BromRestagingManager
 from saphirapy.syntax_tree.cast_call_reference import CastCallReference
+from saphirapy.syntax_tree.cast_member_option import CastMemberOption
 
 
 class TestCastMemberDetection(unittest.TestCase):
@@ -230,6 +231,52 @@ diagram, ctx = production.easy_cast_and_build(planner)
         cast_calls = self.manager.find_easy_cast_and_build_calls(tree)
 
         self.assertEqual(cast_calls, [])
+
+
+class TestCastMemberOption(unittest.TestCase):
+    """Test Phase 2: Alternative cast-member metadata."""
+
+    def test_stores_all_replacement_metadata(self):
+        option = CastMemberOption(
+            name="prm_star",
+            import_statements=[
+                "from brom_drake.motion_planning.algorithms.prm_star import PRMStarConfig, PRMStarPlanner"
+            ],
+            instantiation_code="prm_planner = PRMStarPlanner(config=PRMStarConfig())",
+            variable_name="prm_planner",
+            method_to_call="plan_path",
+        )
+
+        self.assertEqual(option.name, "prm_star")
+        self.assertEqual(
+            option.import_statements,
+            ["from brom_drake.motion_planning.algorithms.prm_star import PRMStarConfig, PRMStarPlanner"],
+        )
+        self.assertEqual(
+            option.instantiation_code,
+            "prm_planner = PRMStarPlanner(config=PRMStarConfig())",
+        )
+        self.assertEqual(option.variable_name, "prm_planner")
+        self.assertEqual(option.method_to_call, "plan_path")
+
+    def test_preserves_multiline_instantiation_code(self):
+        instantiation_code = """bidirrt_planner = BiRRTPlanner(
+    arm=production.arm,
+    plant=production.plant,
+    config=BiRRTConfig(max_time=10.0),
+)"""
+        option = CastMemberOption(
+            name="bidirrt",
+            import_statements=[
+                "from brom_drake.motion_planning.algorithms.bidirrt import BiRRTConfig, BiRRTPlanner"
+            ],
+            instantiation_code=instantiation_code,
+            variable_name="bidirrt_planner",
+            method_to_call="execute",
+        )
+
+        self.assertEqual(option.instantiation_code, instantiation_code)
+        self.assertIn("BiRRTConfig(max_time=10.0)", option.instantiation_code)
 
 
 if __name__ == "__main__":
