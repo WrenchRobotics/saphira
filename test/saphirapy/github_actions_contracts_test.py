@@ -6,7 +6,9 @@ import unittest
 from saphirapy.detect_production_map import detect_production_mapping
 from saphirapy.github_actions_contracts import (
     build_summary,
+    build_variant_outputs,
     finalize_result_payload,
+    find_alternative_actors_for_production,
     parse_detection_outputs,
 )
 
@@ -39,6 +41,51 @@ class TestGitHubActionContracts(unittest.TestCase):
         self.assertEqual(outputs["detected-parent"], "UNMAPPED")
         self.assertEqual(outputs["related-productions-json"], "[]")
 
+    def test_finds_registered_alternative_actors_for_production(self):
+        target_file = self.data_directory / "motion_planning" / "chem_lab_demo.py"
+
+        actors = find_alternative_actors_for_production(target_file)
+
+        self.assertEqual(len(actors), 1)
+        self.assertEqual(actors[0]["production_variable"], "production")
+        self.assertEqual(actors[0]["current_actor"], "planner2.plan")
+        self.assertEqual(actors[0]["current_actor_class"], "RRTConnectPlanner")
+        self.assertEqual(actors[0]["actor_type"], "motion_planning_rrt")
+        self.assertEqual(
+            [alternative["name"] for alternative in actors[0]["alternatives"]],
+            ["bidirectional_rrt", "bidirectional_rrt_connect"],
+        )
+        self.assertTrue(
+            all(
+                {"import_statements", "instantiation_code", "variable_name", "method_to_call"}
+                <= alternative.keys()
+                for alternative in actors[0]["alternatives"]
+            )
+        )
+
+    def test_variant_outputs_keep_baseline_separate_from_opt_in_variants(self):
+        target_file = self.data_directory / "motion_planning" / "chem_lab_demo.py"
+        detection_payload = json.dumps(detect_production_mapping(target_file))
+
+        disabled_outputs = build_variant_outputs(
+            detection_payload, target_file, False, False
+        )
+        enabled_outputs = build_variant_outputs(
+            detection_payload, target_file, True, True
+        )
+
+        self.assertEqual(disabled_outputs["detected-production"], "ChemLab1")
+        self.assertEqual(json.loads(disabled_outputs["alternative-productions-json"]), [])
+        self.assertEqual(json.loads(disabled_outputs["alternative-actors-json"]), [])
+        self.assertEqual(enabled_outputs["has-alternative-productions"], "true")
+        self.assertEqual(
+            json.loads(enabled_outputs["alternative-productions-json"]), ["ShelfPlanning1"]
+        )
+        self.assertEqual(
+            [actor["name"] for actor in json.loads(enabled_outputs["alternative-actors-json"])],
+            ["bidirectional_rrt", "bidirectional_rrt_connect"],
+        )
+
     def test_result_payloads_feed_combined_summary(self):
         with TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -51,6 +98,7 @@ class TestGitHubActionContracts(unittest.TestCase):
                 0,
                 12.5,
                 "productions/restaged/shelf_planning1.py",
+                "baseline-ChemLab1",
             )
             finalize_result_payload(
                 second_results_dir / "no-related-productions.json",
@@ -62,7 +110,7 @@ class TestGitHubActionContracts(unittest.TestCase):
 
             summary = build_summary(f"{first_results_dir}\n{second_results_dir}")
 
-            self.assertIn("| ShelfPlanning1 | 0 | 12.5 | passed |", summary)
+            self.assertIn("| baseline-ChemLab1 | 0 | 12.5 | passed |", summary)
             self.assertIn("| NO_RELATED_PRODUCTIONS | 1 | 3.25 | failed |", summary)
             self.assertNotIn("productions/restaged/shelf_planning1.py", summary)
             self.assertIn("Totals: 1 passed, 1 failed", summary)

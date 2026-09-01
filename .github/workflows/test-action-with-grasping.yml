@@ -14,8 +14,11 @@ jobs:
     outputs:
       example-file: ${{ steps.detect.outputs.example-file }}
       detected-parent: ${{ steps.detect.outputs.detected-production-parent }}
-      related-productions-json: ${{ steps.normalize-related.outputs.related-productions-json }}
-      has-related-productions: ${{ steps.normalize-related.outputs.has-related-productions }}
+      detected-production: ${{ steps.detect.outputs.detected-production }}
+      alternative-productions-json: ${{ steps.detect.outputs.alternative-productions-json }}
+      alternative-actors-json: ${{ steps.detect.outputs.alternative-actors-json }}
+      has-alternative-productions: ${{ steps.detect.outputs.has-alternative-productions }}
+      has-alternative-actors: ${{ steps.detect.outputs.has-alternative-actors }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -29,41 +32,39 @@ jobs:
           path-to-example-run: src/examples/grasping1/
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Normalize related productions output
-        id: normalize-related
-        shell: bash
-        env:
-          RAW_RELATED_JSON: ${{ steps.detect.outputs.related-productions-json }}
-        run: |
-          set -euo pipefail
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          import os
-
-          raw = (os.getenv("RAW_RELATED_JSON") or "").strip()
-          if not raw:
-              related = []
-          else:
-              try:
-                  parsed = json.loads(raw)
-              except json.JSONDecodeError:
-                  related = []
-              else:
-                  related = parsed if isinstance(parsed, list) else []
-
-          print(f"related-productions-json={json.dumps(related)}")
-          print(f"has-related-productions={'true' if len(related) > 0 else 'false'}")
-          PY
-
-  restage-and-run:
+  run-baseline:
     needs: prepare
-    if: needs.prepare.outputs.has-related-productions == 'true'
     runs-on: ubuntu-latest
-    name: Run related productions matrix
+    name: Run current production with current actors
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Run and evaluate baseline
+        id: run-evaluate
+        uses: ./.github/actions/saphira-run-evaluate
+        with:
+          target-file: ${{ needs.prepare.outputs.example-file }}
+          production-class: ${{ needs.prepare.outputs.detected-production }}
+          variant-name: baseline-${{ needs.prepare.outputs.detected-production }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Upload baseline result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-result
+          path: ${{ steps.run-evaluate.outputs.result-json-path }}
+
+  run-alternative-productions:
+    needs: prepare
+    if: needs.prepare.outputs.has-alternative-productions == 'true'
+    runs-on: ubuntu-latest
+    name: Run alternative productions with current actors
     strategy:
       fail-fast: false
       matrix:
-        production: ${{ fromJSON(needs.prepare.outputs.related-productions-json) }}
+        production: ${{ fromJSON(needs.prepare.outputs.alternative-productions-json) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -74,71 +75,48 @@ jobs:
         with:
           target-file: ${{ needs.prepare.outputs.example-file }}
           production-class: ${{ matrix.production }}
+          variant-name: production-${{ matrix.production }}
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Upload matrix result artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: matrix-result-${{ matrix.production }}
+          name: production-result-${{ matrix.production }}
           path: ${{ steps.run-evaluate.outputs.result-json-path }}
 
-  run-no-related-fallback:
+  run-alternative-actors:
     needs: prepare
-    if: needs.prepare.outputs.has-related-productions != 'true'
+    if: needs.prepare.outputs.has-alternative-actors == 'true'
     runs-on: ubuntu-latest
-    name: Run fallback when no related productions
+    name: Run current production with alternative actors
+    strategy:
+      fail-fast: false
+      matrix:
+        actor: ${{ fromJSON(needs.prepare.outputs.alternative-actors-json) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Run and evaluate actor variant
+        id: run-evaluate
+        uses: ./.github/actions/saphira-run-evaluate
         with:
+          target-file: ${{ needs.prepare.outputs.example-file }}
+          production-class: ${{ needs.prepare.outputs.detected-production }}
+          actor-variant-json: ${{ toJSON(matrix.actor) }}
+          variant-name: actor-${{ matrix.actor.name }}-${{ matrix.actor.cast_call_index }}
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          pip install brom_drake
-          pip install -e src/python/saphirapy
-
-      - name: Run example and produce fallback result
-        id: fallback
-        shell: bash
-        run: |
-          set -euo pipefail
-          result_dir="productions/matrix-results"
-          mkdir -p "$result_dir"
-          result_json_path="$result_dir/no-related-productions.json"
-
-          start_epoch="$(python -c 'import time; print(time.time())')"
-          set +e
-          python "${{ needs.prepare.outputs.example-file }}"
-          exit_code=$?
-          set -e
-          end_epoch="$(python -c 'import time; print(time.time())')"
-          duration_seconds="$(python -c "start=float('$start_epoch'); end=float('$end_epoch'); print(f'{max(0.0, end-start):.3f}')")"
-
-          python .github/actions/saphira-run-evaluate/finalize_result.py \
-            "$result_json_path" \
-            "NO_RELATED_PRODUCTIONS" \
-            "$exit_code" \
-            "$duration_seconds" \
-            ""
-
-          echo "result-json-path=$result_json_path" >> "$GITHUB_OUTPUT"
-
-      - name: Upload fallback result artifact
+      - name: Upload actor result artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: no-related-result
-          path: ${{ steps.fallback.outputs.result-json-path }}
+          name: actor-result-${{ matrix.actor.name }}-${{ matrix.actor.cast_call_index }}
+          path: ${{ steps.run-evaluate.outputs.result-json-path }}
 
   summarize:
-    needs: [prepare, restage-and-run, run-no-related-fallback]
+    needs: [prepare, run-baseline, run-alternative-productions, run-alternative-actors]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -148,17 +126,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Download matrix result artifacts
-        if: needs.prepare.outputs.has-related-productions == 'true'
+      - name: Download result artifacts
         uses: actions/download-artifact@v4
         with:
-          path: productions/matrix-results
-
-      - name: Download fallback result artifact
-        if: needs.prepare.outputs.has-related-productions != 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: no-related-result
           path: productions/matrix-results
 
       - name: Collate results and comment on PR
@@ -172,9 +142,8 @@ jobs:
           allow-comment-update: >-
             ${{
               needs.prepare.result == 'success' &&
-              (
-                (needs.prepare.outputs.has-related-productions == 'true' && needs.restage-and-run.result == 'success') ||
-                (needs.prepare.outputs.has-related-productions != 'true' && needs.run-no-related-fallback.result == 'success')
-              )
+              needs.run-baseline.result == 'success' &&
+              (needs.prepare.outputs.has-alternative-productions != 'true' || needs.run-alternative-productions.result == 'success') &&
+              (needs.prepare.outputs.has-alternative-actors != 'true' || needs.run-alternative-actors.result == 'success')
             }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

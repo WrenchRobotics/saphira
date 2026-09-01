@@ -9,6 +9,14 @@ inputs:
   production-class:
     description: Production class name to restage into the target file.
     required: true
+  actor-variant-json:
+    description: JSON definition of one replacement actor variant.
+    required: false
+    default: ''
+  variant-name:
+    description: Unique name used for the restaged file and result artifact.
+    required: false
+    default: ''
   python-version:
     description: Python version to use.
     required: false
@@ -54,16 +62,26 @@ runs:
       run: |
         set -euo pipefail
         mkdir -p "${{ inputs.result-directory }}"
-        result_json_path="${{ inputs.result-directory }}/${{ inputs.production-class }}.json"
+        variant_name="${{ inputs.variant-name }}"
+        if [ -z "$variant_name" ]; then
+          variant_name="${{ inputs.production-class }}"
+        fi
+        result_json_path="${{ inputs.result-directory }}/$variant_name.json"
 
         start_epoch="$(python -c 'import time; print(time.time())')"
 
         set +e
+        actor_arguments=()
+        if [ -n "$ACTOR_VARIANT_JSON" ]; then
+          actor_arguments+=(--actor-variant-json "$ACTOR_VARIANT_JSON")
+        fi
         saphira-restage-and-run-production \
           --target-file "${{ inputs.target-file }}" \
           --production-class "${{ inputs.production-class }}" \
           --output-dir "${{ inputs.restaged-output-directory }}" \
-          --result-json "$result_json_path"
+          --result-json "$result_json_path" \
+          --variant-name "$variant_name" \
+          "${actor_arguments[@]}"
         exit_code=$?
         set -e
 
@@ -75,9 +93,10 @@ runs:
           "${{ inputs.production-class }}" \
           "$exit_code" \
           "$duration_seconds" \
-          ""
+          "" \
+          "$variant_name"
 
-        metrics_body="### Variant Metrics\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code\n- Duration (s): $duration_seconds"
+        metrics_body="### Variant Metrics\n- Variant: $variant_name\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code\n- Duration (s): $duration_seconds"
 
         echo "result-json-path=$result_json_path" >> "$GITHUB_OUTPUT"
         echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
@@ -86,3 +105,5 @@ runs:
           printf '%b\n' "$metrics_body"
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
+      env:
+        ACTOR_VARIANT_JSON: ${{ inputs.actor-variant-json }}

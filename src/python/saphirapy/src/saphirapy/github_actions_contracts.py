@@ -1,6 +1,10 @@
+import ast
 import json
 from pathlib import Path
 from typing import Any
+
+from saphirapy.productions.cast_member_registry import get_alternatives_for_type
+from saphirapy.restaging import BromRestagingManager
 
 
 def parse_detection_outputs(detection_json: str) -> dict[str, str]:
@@ -25,12 +29,126 @@ def write_detection_outputs(detection_json: str, github_output_path: Path) -> di
     return outputs
 
 
+def _option_constructor_name(instantiation_code: str) -> str | None:
+    for statement in ast.parse(instantiation_code).body:
+        if not isinstance(statement, ast.Assign) or not isinstance(statement.value, ast.Call):
+            continue
+        constructor = statement.value.func
+        if isinstance(constructor, ast.Name):
+            return constructor.id
+        if isinstance(constructor, ast.Attribute):
+            return constructor.attr
+    return None
+
+
+def find_alternative_actors_for_production(production_file: Path) -> list[dict[str, Any]]:
+    """Return registered actor replacements for each cast call in a production file."""
+    parsed_tree = ast.parse(production_file.read_text())
+    manager = BromRestagingManager(output_dir=production_file.parent)
+    actors: list[dict[str, Any]] = []
+
+    for cast_call_index, cast_call in enumerate(manager.find_easy_cast_and_build_calls(parsed_tree)):
+        current_actor_class = manager._extract_class_name_from_instantiation(
+            cast_call.instantiation_node
+        )
+        alternatives = []
+        if cast_call.cast_member_type is not None:
+            alternatives = [
+                {
+                    "name": option.name,
+                    "import_statements": option.import_statements,
+                    "instantiation_code": option.instantiation_code,
+                    "variable_name": option.variable_name,
+                    "method_to_call": option.method_to_call,
+                }
+                for option in get_alternatives_for_type(cast_call.cast_member_type)
+                if _option_constructor_name(option.instantiation_code) != current_actor_class
+            ]
+
+        actors.append(
+            {
+                "cast_call_index": cast_call_index,
+                "production_variable": cast_call.production_var,
+                "current_actor": cast_call.cast_member_expr,
+                "current_actor_class": current_actor_class,
+                "actor_type": cast_call.cast_member_type,
+                "alternatives": alternatives,
+            }
+        )
+
+    return actors
+
+
+def build_variant_outputs(
+    detection_json: str,
+    production_file: Path,
+    include_alternative_productions: bool,
+    include_alternative_actors: bool,
+) -> dict[str, str]:
+    """Build GitHub Actions matrix outputs for baseline and optional variants."""
+    payload = json.loads(detection_json)
+    related_productions = payload.get("related_productions") or []
+    if not isinstance(related_productions, list):
+        raise ValueError("related_productions must be a list")
+
+    detected_production = str(payload.get("detected_production_class") or "UNMAPPED")
+    alternative_productions: list[str] = []
+    if include_alternative_productions and detected_production != "UNMAPPED":
+        alternative_productions = [
+            str(production)
+            for production in related_productions
+            if str(production) != detected_production
+        ]
+
+    alternative_actors: list[dict[str, Any]] = []
+    if include_alternative_actors and detected_production != "UNMAPPED":
+        for actor in find_alternative_actors_for_production(production_file):
+            for alternative in actor["alternatives"]:
+                alternative_actors.append(
+                    {
+                        "cast_call_index": actor["cast_call_index"],
+                        **alternative,
+                    }
+                )
+
+    return {
+        "detected-production": detected_production,
+        "alternative-productions-json": json.dumps(alternative_productions),
+        "alternative-actors-json": json.dumps(alternative_actors),
+        "has-alternative-productions": str(bool(alternative_productions)).lower(),
+        "has-alternative-actors": str(bool(alternative_actors)).lower(),
+    }
+
+
+def write_variant_outputs(
+    detection_json: str,
+    production_file: Path,
+    github_output_path: Path,
+    include_alternative_productions: bool,
+    include_alternative_actors: bool,
+) -> dict[str, str]:
+    outputs = parse_detection_outputs(detection_json)
+    outputs.update(
+        build_variant_outputs(
+            detection_json,
+            production_file,
+            include_alternative_productions,
+            include_alternative_actors,
+        )
+    )
+    with github_output_path.open("a", encoding="utf-8") as handle:
+        for key, value in outputs.items():
+            handle.write(f"{key}={value}\n")
+    return outputs
+
+
 def finalize_result_payload(
     result_json_path: Path,
     production_class: str,
     exit_code: int,
     duration_seconds: float,
     restaged_file_default: str,
+    variant_name: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     if result_json_path.exists():
@@ -43,6 +161,8 @@ def finalize_result_payload(
     payload.setdefault("restaged_file", restaged_file_default)
     payload["exit_code"] = int(exit_code)
     payload["duration_seconds"] = float(duration_seconds)
+    if variant_name is not None:
+        payload["variant_name"] = variant_name
 
     result_json_path.parent.mkdir(parents=True, exist_ok=True)
     result_json_path.write_text(json.dumps(payload, indent=2))
@@ -87,7 +207,9 @@ def build_summary(results_directories: str) -> str:
 
         try:
             payload = json.loads(file_path.read_text())
-            production = str(payload.get("production_class") or production)
+            production = str(
+                payload.get("variant_name") or payload.get("production_class") or production
+            )
             exit_code = str(payload.get("exit_code", "unknown"))
             duration_seconds = str(payload.get("duration_seconds", "n/a"))
             metrics_payload = payload.get("metrics")
