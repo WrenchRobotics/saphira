@@ -89,6 +89,7 @@ runs:
     - name: Run Saphira facade
       id: run-facade
       shell: bash
+      continue-on-error: true
       env:
         FANOUT_TOKEN: ${{ inputs.fanout-token }}
       run: |
@@ -132,3 +133,20 @@ runs:
             steps.run-facade.outputs.failed-count == '0'
           }}
         github-token: ${{ inputs.github-token }}
+
+    - name: Check facade results
+      if: always()
+      shell: bash
+      run: |
+        set -euo pipefail
+        outcome="${{ steps.run-facade.outcome }}"
+        failed_count="${{ steps.run-facade.outputs.failed-count }}"
+        result_count="${{ steps.run-facade.outputs.result-count }}"
+        if [ "$outcome" != 'success' ] && [ -z "$failed_count" ]; then
+          echo "::error::Saphira facade run did not produce results (fanout crashed before reporting outputs)."
+          exit 1
+        fi
+        if [ -n "$failed_count" ] && [ "$failed_count" != '0' ]; then
+          echo "::error::${failed_count}/${result_count} Saphira fanout cases failed. See the uploaded artifacts and PR comment for details."
+          exit 1
+        fi
