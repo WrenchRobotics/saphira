@@ -127,11 +127,7 @@ runs:
         section-key: ${{ inputs.section-key }}
         section-heading: ${{ inputs.section-heading }}
         detected-parent: ${{ steps.run-facade.outputs.detected-parent }}
-        allow-comment-update: >-
-          ${{
-            inputs.allow-comment-update == 'true' &&
-            steps.run-facade.outputs.failed-count == '0'
-          }}
+        allow-comment-update: ${{ inputs.allow-comment-update }}
         github-token: ${{ inputs.github-token }}
 
     - name: Check facade results
