@@ -51,6 +51,8 @@ def normalize_fanout_case(case: dict[str, Any], index: int) -> dict[str, str]:
     }
     if "source" in case:
         normalized["source"] = str(case["source"])
+    if "comparison-metadata-json" in case:
+        normalized["comparison-metadata-json"] = str(case["comparison-metadata-json"])
     return normalized
 
 

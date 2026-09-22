@@ -25,7 +25,7 @@ def _comparison_metadata(
 ) -> dict[str, Any]:
     return {
         "comparison-type": comparison_type,
-        **metadata,
+        **{key.replace("_", "-"): value for key, value in metadata.items()},
     }
 
 
@@ -282,13 +282,12 @@ def _normalize_result_file(file_path: Path) -> ResultRecord:
         payload = json.loads(file_path.read_text())
         if not isinstance(payload, dict):
             raise ValueError("result payload must be an object")
-        production = str(
-            payload.get("cast_production_name") or payload.get("production_class") or production
-        )
+        comparison_name = str(payload.get("cast_production_name") or file_path.stem)
+        production = str(payload.get("cast_production_name") or file_path.stem)
         production_class = str(payload.get("production_class") or production_class)
         exit_code = str(payload.get("exit_code", "unknown"))
         duration_seconds = str(payload.get("duration_seconds", "n/a"))
-        comparison_type, comparison_metadata = _classify_comparison(payload, production)
+        comparison_type, comparison_metadata = _classify_comparison(payload, comparison_name)
         metrics_payload = payload.get("metrics")
         if isinstance(metrics_payload, dict):
             metrics = {str(name): str(value) for name, value in metrics_payload.items()}
@@ -451,7 +450,7 @@ def build_summary(results_directories: str) -> str:
     for row in other_rows:
         other_table_rows.append(
             [
-                row["production"].replace("|", "\\|"),
+                row["production_class"].replace("|", "\\|"),
                 row["exit_code"],
                 row["duration_seconds"],
                 row["status"],

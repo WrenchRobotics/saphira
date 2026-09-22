@@ -130,6 +130,10 @@ class TestGitHubActionContracts(unittest.TestCase):
                 for cast_production in actor_cast_productions
             )
         )
+        actor_metadata = json.loads(actor_cast_productions[0]["comparison-metadata-json"])
+        self.assertEqual(actor_metadata["comparison-type"], "actor")
+        self.assertEqual(actor_metadata["actor-name"], "bidirectional_rrt")
+        self.assertNotIn("instantiation_code", actor_metadata)
 
     def test_result_payloads_feed_combined_summary(self):
         with TemporaryDirectory() as tmpdir:
@@ -254,6 +258,54 @@ class TestGitHubActionContracts(unittest.TestCase):
             self.assertIn("| Current actors |  | ChemLab1 | baseline-ChemLab1 |", summary)
             self.assertIn("#### Production Comparison", summary)
             self.assertIn("| ShelfPlanning1 | production-ShelfPlanning1 | Current actors |", summary)
+
+    def test_summary_omits_empty_comparison_sections(self):
+        with TemporaryDirectory() as tmpdir:
+            results_directory = Path(tmpdir)
+            (results_directory / "actor-only.json").write_text(
+                json.dumps(
+                    {
+                        "production_class": "ChemLab1",
+                        "cast_production_name": "actor-bidirectional_rrt-0",
+                        "exit_code": 0,
+                        "duration_seconds": 1.5,
+                        "comparison_type": "actor",
+                        "comparison_metadata": {
+                            "comparison-type": "actor",
+                            "actor-name": "bidirectional_rrt",
+                            "cast-call-index": 0,
+                        },
+                    }
+                )
+            )
+
+            summary = build_summary(str(results_directory))
+
+            self.assertIn("#### Actor Comparison", summary)
+            self.assertNotIn("#### Production Comparison", summary)
+            self.assertNotIn("#### Other Results", summary)
+
+    def test_summary_reports_malformed_results_and_uses_prefix_fallback(self):
+        with TemporaryDirectory() as tmpdir:
+            results_directory = Path(tmpdir)
+            (results_directory / "production-ShelfPlanning1.json").write_text(
+                json.dumps(
+                    {
+                        "production_class": "ShelfPlanning1",
+                        "exit_code": 0,
+                        "duration_seconds": 2.0,
+                    }
+                )
+            )
+            (results_directory / "broken.json").write_text("not json")
+
+            summary = build_summary(str(results_directory))
+
+            self.assertIn("#### Production Comparison", summary)
+            self.assertIn("| ShelfPlanning1 | production-ShelfPlanning1 |", summary)
+            self.assertIn("#### Other Results", summary)
+            self.assertIn("| broken | parse_error | n/a | failed |", summary)
+            self.assertIn("Warning: 1 result file(s) could not be parsed", summary)
 
 
 if __name__ == "__main__":
