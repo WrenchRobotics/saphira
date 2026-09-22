@@ -47,6 +47,7 @@ jobs:
           target-file: ${{ needs.prepare.outputs.example-file }}
           production-class: ${{ needs.prepare.outputs.detected-production }}
           cast-production-name: baseline-${{ needs.prepare.outputs.detected-production }}
+          comparison-metadata-json: '{"comparison-type":"production","actor_configuration":"current"}'
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Upload baseline result artifact
@@ -78,6 +79,7 @@ jobs:
           target-file: ${{ needs.prepare.outputs.example-file }}
           production-class: ${{ matrix.production }}
           cast-production-name: production-${{ matrix.production }}
+          comparison-metadata-json: '{"comparison-type":"production","actor_configuration":"current"}'
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Upload matrix result artifact
@@ -110,6 +112,7 @@ jobs:
           production-class: ${{ needs.prepare.outputs.detected-production }}
           actor-variant-json: ${{ toJSON(matrix.actor) }}
           cast-production-name: actor-${{ matrix.actor.name }}-${{ matrix.actor.cast_call_index }}
+          comparison-metadata-json: ${{ format('{{"comparison-type":"actor","actor-name":"{0}","cast-call-index":{1},"current-actor-class":"{2}","actor-type":"{3}"}}', matrix.actor.name, matrix.actor.cast_call_index, matrix.actor.current_actor_class, matrix.actor.actor_type) }}
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Upload actor result artifact

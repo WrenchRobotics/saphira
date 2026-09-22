@@ -155,7 +155,16 @@ class TestGitHubActionContracts(unittest.TestCase):
 
             summary = build_summary(f"{first_results_dir}\n{second_results_dir}")
 
-            self.assertIn("| baseline-ChemLab1 | 0 | 12.5 | passed |", summary)
+            self.assertIn(
+                "| ShelfPlanning1 | baseline-ChemLab1 | Current actors | 0 | 12.5 | passed |",
+                summary,
+            )
+            self.assertIn("#### Actor Comparison", summary)
+            self.assertIn(
+                "| Current actors |  | ShelfPlanning1 | baseline-ChemLab1 | 0 | 12.5 | passed |",
+                summary,
+            )
+            self.assertIn("#### Production Comparison", summary)
             self.assertIn("| NO_RELATED_PRODUCTIONS | 1 | 3.25 | failed |", summary)
             self.assertNotIn("productions/restaged/shelf_planning1.py", summary)
             self.assertIn("Totals: 1 passed, 1 failed", summary)
@@ -197,15 +206,54 @@ class TestGitHubActionContracts(unittest.TestCase):
 
             summary = build_summary(str(result_path.parent))
 
-            self.assertIn("Additional Metrics:", summary)
             self.assertIn(
-                "| Production | Final Configuration Error | Joint Space Length of Plan |",
+                "| Result | Exit Code | Duration (s) | Status | Final Configuration Error | Joint Space Length of Plan |",
                 summary,
             )
             self.assertIn(
-                "| ChemLab1 | 0.01 | 2.5 |",
+                "| ChemLab1 | 0 | 1.5 | passed | 0.01 | 2.5 |",
                 summary,
             )
+
+    def test_summary_separates_actor_variants_from_production_variants(self):
+        with TemporaryDirectory() as tmpdir:
+            results_directory = Path(tmpdir)
+            result_payloads = {
+                "baseline-ChemLab1.json": {
+                    "production_class": "ChemLab1",
+                    "cast_production_name": "baseline-ChemLab1",
+                    "exit_code": 0,
+                    "duration_seconds": 1.0,
+                },
+                "actor-bidirectional_rrt-0.json": {
+                    "production_class": "ChemLab1",
+                    "cast_production_name": "actor-bidirectional_rrt-0",
+                    "exit_code": 0,
+                    "duration_seconds": 1.5,
+                    "comparison_type": "actor",
+                    "comparison_metadata": {
+                        "comparison-type": "actor",
+                        "actor-name": "bidirectional_rrt",
+                        "cast-call-index": 0,
+                    },
+                },
+                "production-ShelfPlanning1.json": {
+                    "production_class": "ShelfPlanning1",
+                    "cast_production_name": "production-ShelfPlanning1",
+                    "exit_code": 1,
+                    "duration_seconds": 2.0,
+                },
+            }
+            for filename, payload in result_payloads.items():
+                (results_directory / filename).write_text(json.dumps(payload))
+
+            summary = build_summary(str(results_directory))
+
+            self.assertIn("#### Actor Comparison", summary)
+            self.assertIn("| bidirectional_rrt | 0 | ChemLab1 | actor-bidirectional_rrt-0 |", summary)
+            self.assertIn("| Current actors |  | ChemLab1 | baseline-ChemLab1 |", summary)
+            self.assertIn("#### Production Comparison", summary)
+            self.assertIn("| ShelfPlanning1 | production-ShelfPlanning1 | Current actors |", summary)
 
 
 if __name__ == "__main__":

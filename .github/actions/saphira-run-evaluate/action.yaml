@@ -13,6 +13,10 @@ inputs:
     description: JSON definition of one replacement actor variant.
     required: false
     default: ''
+  comparison-metadata-json:
+    description: JSON metadata identifying whether this result is an actor or production comparison.
+    required: false
+    default: ''
   cast-production-name:
     description: Unique name used for the restaged file and result artifact.
     required: false
@@ -107,7 +111,8 @@ runs:
           "$exit_code" \
           "$duration_seconds" \
           "" \
-          "$cast_production_name"
+          "$cast_production_name" \
+          "$COMPARISON_METADATA_JSON"
 
         metrics_body="### Cast Production Metrics\n- Cast Production: $cast_production_name\n- Production class: ${{ inputs.production-class }}\n- Exit code: $exit_code\n- Duration (s): $duration_seconds"
 
@@ -121,3 +126,4 @@ runs:
         } >> "$GITHUB_OUTPUT"
       env:
         ACTOR_VARIANT_JSON: ${{ inputs.actor-variant-json }}
+        COMPARISON_METADATA_JSON: ${{ inputs.comparison-metadata-json }}
