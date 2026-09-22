@@ -54,20 +54,20 @@ Example:
 
 ```yaml
 - name: Collate matrix runs
+  if: needs.matrix.result == 'success'
   uses: kwesirutledge/saphira/.github/actions/saphira-collate-comment@main
   with:
     results-directories: productions/matrix-results
     section-key: matrix-results
     section-heading: Matrix Production Results
-    allow-comment-update: ${{ needs.matrix.result == 'success' }}
     github-token: ${{ secrets.GITHUB_TOKEN }}
 
 - name: Collate fallback runs
+  if: needs.fallback.result == 'success'
   uses: kwesirutledge/saphira/.github/actions/saphira-collate-comment@main
   with:
     results-directories: productions/fallback-results
     section-key: fallback-results
     section-heading: Fallback Production Results
-    allow-comment-update: ${{ needs.fallback.result == 'success' }}
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```

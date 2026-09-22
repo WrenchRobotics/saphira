@@ -51,9 +51,6 @@ inputs:
   section-heading:
     required: false
     default: Saphira Facade Results
-  allow-comment-update:
-    required: false
-    default: 'true'
   github-token:
     required: true
 
@@ -127,7 +124,6 @@ runs:
         section-key: ${{ inputs.section-key }}
         section-heading: ${{ inputs.section-heading }}
         detected-parent: ${{ steps.run-facade.outputs.detected-parent }}
-        allow-comment-update: ${{ inputs.allow-comment-update }}
         github-token: ${{ inputs.github-token }}
 
     - name: Check facade results
