@@ -1,96 +1,31 @@
 name: Saphira v1 Metrics Comment Test
+
 on: [pull_request, deployment]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 env:
   PYTHON_VERSION: '3.14.2'
 
 jobs:
-  prepare:
+  run-facade:
     runs-on: ubuntu-latest
-    name: Prepare Saphira detection
-    permissions:
-      contents: read
-      pull-requests: write
-    outputs:
-      example-file: ${{ steps.detect.outputs.example-file }}
-      detected-parent: ${{ steps.detect.outputs.detected-production-parent }}
-      cast-productions-json: ${{ steps.detect.outputs.cast-productions-json }}
+    name: Run Saphira v1 facade
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@v4
 
-      - name: Detect related productions
-        id: detect
-        uses: ./.github/actions/saphira-detect
+      - name: Run Saphira v1 fanout
+        uses: ./.github/actions/saphira-run
         with:
           path-to-example-run: src/examples/motion_planning1/chem.py
-          python-version: ${{ env.PYTHON_VERSION }}
+          fanout-source: local
           include-alternative-actors: 'true'
-
-  restage-and-run:
-    needs: prepare
-    if: needs.prepare.outputs.cast-productions-json != '[]'
-    runs-on: ubuntu-latest
-    name: Restage and run matrix
-    strategy:
-      fail-fast: false
-      matrix:
-        cast_production: ${{ fromJSON(needs.prepare.outputs.cast-productions-json) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Run and evaluate cast production
-        id: run-evaluate
-        uses: ./.github/actions/saphira-run-evaluate
-        with:
-          target-file: ${{ needs.prepare.outputs.example-file }}
-          production-class: ${{ matrix.cast_production.production-class }}
-          actor-variant-json: ${{ matrix.cast_production.actor-variant-json }}
-          cast-production-name: ${{ matrix.cast_production.cast-production-name }}
+          max-concurrency: '2'
+          run-timeout-seconds: '300'
           python-version: ${{ env.PYTHON_VERSION }}
-          run-timeout-seconds: 300
-
-      - name: Upload matrix result artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.cast_production.artifact-name }}
-          path: |
-            ${{ steps.run-evaluate.outputs.result-json-path }}
-            ${{ steps.run-evaluate.outputs.restaging-bundle-path }}
-
-  summarize:
-    needs: [prepare, restage-and-run]
-    if: always()
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Download matrix result artifacts
-        if: needs.prepare.outputs.cast-productions-json != '[]'
-        uses: actions/download-artifact@v4
-        with:
-          path: productions/matrix-results
-
-      - name: Collate results and comment on PR
-        uses: ./.github/actions/saphira-collate-comment
-        with:
-          results-directories: productions/matrix-results
           section-key: saphira-v1-matrix
           section-heading: Saphira v1 Matrix Results
-          python-version: ${{ env.PYTHON_VERSION }}
-          detected-parent: ${{ needs.prepare.outputs.detected-parent }}
-          allow-comment-update: >-
-            ${{
-              needs.prepare.result == 'success' &&
-              (needs.prepare.outputs.cast-productions-json == '[]' || needs.restage-and-run.result == 'success')
-            }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -5,6 +5,7 @@ from typing import Any
 
 from saphirapy.productions.cast_member_registry import get_alternatives_for_type
 from saphirapy.restaging import BromRestagingManager
+from saphirapy.fanout import normalize_fanout_cases
 
 
 def parse_detection_outputs(detection_json: str) -> dict[str, str]:
@@ -129,6 +130,7 @@ def build_cast_production_outputs(
         }
         for actor in alternative_actors
     )
+    cast_productions = normalize_fanout_cases(cast_productions)
 
     return {
         "detected-production": detected_production,

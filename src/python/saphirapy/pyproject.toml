@@ -45,6 +45,7 @@ Repository = "https://github.com/WrenchRobotics/saphira"
 [project.scripts]
 saphira-detect-production-map = "saphirapy.detect_production_map:main"
 saphira-restage-and-run-production = "saphirapy.restage_and_run_production:main"
+saphira-run-facade = "saphirapy.facade:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

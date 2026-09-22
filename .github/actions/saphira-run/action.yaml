@@ -1,0 +1,129 @@
+name: Saphira Run
+
+description: Detect, optionally augment, execute, and summarize a Saphira fanout.
+
+inputs:
+  path-to-example-run:
+    description: Example Python file or directory containing a production script.
+    required: true
+  fanout-source:
+    description: local, remote, or remote-with-fallback.
+    required: false
+    default: local
+  fanout-endpoint:
+    description: Endpoint returning additional fanout cases.
+    required: false
+  fanout-token:
+    description: Bearer token for the fanout endpoint.
+    required: false
+  fanout-timeout-seconds:
+    description: Timeout for the remote fanout request.
+    required: false
+    default: '10'
+  include-alternative-productions:
+    required: false
+    default: 'true'
+  include-alternative-actors:
+    required: false
+    default: 'false'
+  max-concurrency:
+    required: false
+    default: ''
+  run-timeout-seconds:
+    required: false
+    default: '900'
+  python-version:
+    required: false
+    default: '3.14.2'
+  results-directory:
+    required: false
+    default: productions/facade-results
+  restaged-output-directory:
+    required: false
+    default: productions/facade-restaged
+  section-key:
+    required: false
+    default: saphira-facade
+  section-heading:
+    required: false
+    default: Saphira Facade Results
+  allow-comment-update:
+    required: false
+    default: 'true'
+  github-token:
+    required: true
+
+outputs:
+  detected-parent:
+    value: ${{ steps.run-facade.outputs.detected-parent }}
+  fanout-source:
+    value: ${{ steps.run-facade.outputs.fanout-source }}
+  remote-status:
+    value: ${{ steps.run-facade.outputs.remote-status }}
+  result-count:
+    value: ${{ steps.run-facade.outputs.result-count }}
+  failed-count:
+    value: ${{ steps.run-facade.outputs.failed-count }}
+  results-directory:
+    value: ${{ steps.run-facade.outputs.results-directory }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        pip install brom_drake
+        pip install -e src/python/saphirapy
+
+    - name: Run Saphira facade
+      id: run-facade
+      shell: bash
+      env:
+        FANOUT_TOKEN: ${{ inputs.fanout-token }}
+      run: |
+        set -euo pipefail
+        args=(
+          --path-to-example-run "${{ inputs.path-to-example-run }}"
+          --fanout-source "${{ inputs.fanout-source }}"
+          --fanout-timeout-seconds "${{ inputs.fanout-timeout-seconds }}"
+          --run-timeout-seconds "${{ inputs.run-timeout-seconds }}"
+          --result-directory "${{ inputs.results-directory }}"
+          --restaged-output-directory "${{ inputs.restaged-output-directory }}"
+        )
+        if [ -n "${{ inputs.fanout-endpoint }}" ]; then args+=(--fanout-endpoint "${{ inputs.fanout-endpoint }}"); fi
+        if [ -n "$FANOUT_TOKEN" ]; then args+=(--fanout-token "$FANOUT_TOKEN"); fi
+        if [ -n "${{ inputs.max-concurrency }}" ]; then args+=(--max-concurrency "${{ inputs.max-concurrency }}"); fi
+        if [ "${{ inputs.include-alternative-productions }}" = 'false' ]; then args+=(--no-include-alternative-productions); fi
+        if [ "${{ inputs.include-alternative-actors }}" = 'true' ]; then args+=(--include-alternative-actors); fi
+        saphira-run-facade "${args[@]}"
+
+    - name: Upload facade artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: saphira-facade-results
+        path: |
+          ${{ inputs.results-directory }}
+          ${{ inputs.restaged-output-directory }}
+
+    - name: Collate facade results
+      if: always()
+      uses: ./.github/actions/saphira-collate-comment
+      with:
+        results-directories: ${{ inputs.results-directory }}
+        section-key: ${{ inputs.section-key }}
+        section-heading: ${{ inputs.section-heading }}
+        detected-parent: ${{ steps.run-facade.outputs.detected-parent }}
+        allow-comment-update: >-
+          ${{
+            inputs.allow-comment-update == 'true' &&
+            steps.run-facade.outputs.failed-count == '0'
+          }}
+        github-token: ${{ inputs.github-token }}
