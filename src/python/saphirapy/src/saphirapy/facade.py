@@ -9,6 +9,8 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
+from tqdm import tqdm
+
 from saphirapy.detect_production_map import detect_production_mapping
 from saphirapy.fanout import FanoutResolution, resolve_fanout
 from saphirapy.github_actions_contracts import (
@@ -77,6 +79,57 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
     return {"case-id": case_id, "result-json-path": str(result_path), "exit-code": str(exit_code)}
 
 
+def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exception) -> dict[str, str]:
+    result_path = results_root / f"{case['case-id']}.json"
+    payload = finalize_result_payload(
+        result_path,
+        case["production-class"],
+        1,
+        0.0,
+        "",
+        case["cast-production-name"],
+    )
+    payload["case_id"] = case["case-id"]
+    payload["fanout_source"] = case.get("source", "local")
+    payload["error"] = f"Worker failed: {error}"
+    result_path.write_text(json.dumps(payload, indent=2))
+    return {"case-id": case["case-id"], "result-json-path": str(result_path), "exit-code": "1"}
+
+
+class ProgressReporter:
+    def __init__(self, total: int, mode: str) -> None:
+        if mode not in {"auto", "bar", "lines", "none"}:
+            raise ValueError(f"Unknown progress mode: {mode}")
+        if mode == "auto":
+            mode = "lines" if os.environ.get("GITHUB_ACTIONS") or not sys.stderr.isatty() else "bar"
+        self.mode = mode
+        self.total = total
+        self.completed = 0
+        self.bar = (
+            tqdm(total=total, desc="Saphira cast productions", unit="case", dynamic_ncols=False)
+            if mode == "bar"
+            else None
+        )
+
+    def record(self, result: dict[str, str]) -> None:
+        self.completed += 1
+        passed = result["exit-code"] == "0"
+        status = "passed" if passed else f"failed (exit code {result['exit-code']})"
+        if self.bar is not None:
+            self.bar.update(1)
+            self.bar.set_postfix(case=result["case-id"], status="passed" if passed else "failed")
+        elif self.mode == "lines":
+            print(
+                f"Saphira facade: [{self.completed}/{self.total}] "
+                f"{result['case-id']} {status}",
+                flush=True,
+            )
+
+    def close(self) -> None:
+        if self.bar is not None:
+            self.bar.close()
+
+
 def run_fanout(
     target_file: Path,
     resolution: FanoutResolution,
@@ -84,26 +137,37 @@ def run_fanout(
     results_root: Path,
     max_workers: int | None,
     run_timeout_seconds: int,
+    progress_mode: str = "auto",
 ) -> list[dict[str, str]]:
     results_root.mkdir(parents=True, exist_ok=True)
     restaged_root.mkdir(parents=True, exist_ok=True)
     worker_count = max_workers or min(os.cpu_count() or 1, max(1, len(resolution.cases)))
     worker_count = max(1, min(worker_count, max(1, len(resolution.cases))))
     completed: list[dict[str, str]] = []
-    with ProcessPoolExecutor(max_workers=worker_count) as pool:
-        futures = {
-            pool.submit(
-                _run_case,
-                case,
-                str(target_file.resolve()),
-                str(restaged_root),
-                str(results_root),
-                run_timeout_seconds,
-            ): case
-            for case in resolution.cases
-        }
-        for future in as_completed(futures):
-            completed.append(future.result())
+    progress = ProgressReporter(len(resolution.cases), progress_mode)
+    try:
+        with ProcessPoolExecutor(max_workers=worker_count) as pool:
+            futures = {
+                pool.submit(
+                    _run_case,
+                    case,
+                    str(target_file.resolve()),
+                    str(restaged_root),
+                    str(results_root),
+                    run_timeout_seconds,
+                ): case
+                for case in resolution.cases
+            }
+            for future in as_completed(futures):
+                case = futures[future]
+                try:
+                    result = future.result()
+                except Exception as error:
+                    result = _record_worker_failure(case, results_root, error)
+                completed.append(result)
+                progress.record(result)
+    finally:
+        progress.close()
     return sorted(completed, key=lambda result: result["case-id"])
 
 
@@ -128,6 +192,7 @@ def main() -> int:
     parser.add_argument("--include-alternative-actors", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--max-concurrency", type=int)
     parser.add_argument("--run-timeout-seconds", type=int, default=900)
+    parser.add_argument("--progress", choices=("auto", "bar", "lines", "none"), default="auto")
     parser.add_argument("--restaged-output-directory", type=Path, default=Path("productions/facade-restaged"))
     parser.add_argument("--result-directory", type=Path, default=Path("productions/facade-results"))
     parser.add_argument("--github-output")
@@ -156,6 +221,7 @@ def main() -> int:
         args.result_directory,
         args.max_concurrency,
         args.run_timeout_seconds,
+        args.progress,
     )
     outputs = {
         "example-file": str(target_file),

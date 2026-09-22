@@ -32,6 +32,10 @@ inputs:
   run-timeout-seconds:
     required: false
     default: '900'
+  progress:
+    description: 'Progress mode: auto, bar, lines, or none.'
+    required: false
+    default: auto
   python-version:
     required: false
     default: '3.14.2'
@@ -94,6 +98,7 @@ runs:
           --fanout-source "${{ inputs.fanout-source }}"
           --fanout-timeout-seconds "${{ inputs.fanout-timeout-seconds }}"
           --run-timeout-seconds "${{ inputs.run-timeout-seconds }}"
+          --progress "${{ inputs.progress }}"
           --result-directory "${{ inputs.results-directory }}"
           --restaged-output-directory "${{ inputs.restaged-output-directory }}"
         )

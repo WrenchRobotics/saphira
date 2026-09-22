@@ -30,6 +30,7 @@ dependencies = [
     "numpy==2.4.1",
     "pycollada==0.9.3",
     "trimesh==4.11.1",
+    "tqdm>=4.66.0",
 ]
 
 [project.optional-dependencies]
