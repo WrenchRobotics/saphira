@@ -164,10 +164,9 @@ class TestGitHubActionContracts(unittest.TestCase):
                 summary,
             )
             self.assertIn("#### Actor Comparison", summary)
-            self.assertIn(
-                "| Current actors |  | ShelfPlanning1 | baseline-ChemLab1 | 0 | 12.5 | passed |",
-                summary,
-            )
+            self.assertIn("| Actor | Current actors |", summary)
+            self.assertIn("| Cast Production | baseline-ChemLab1 |", summary)
+            self.assertIn("| Duration (s) | 12.5 |", summary)
             self.assertIn("#### Production Comparison", summary)
             self.assertIn("| NO_RELATED_PRODUCTIONS | 1 | 3.25 | failed |", summary)
             self.assertNotIn("productions/restaged/shelf_planning1.py", summary)
@@ -254,8 +253,12 @@ class TestGitHubActionContracts(unittest.TestCase):
             summary = build_summary(str(results_directory))
 
             self.assertIn("#### Actor Comparison", summary)
-            self.assertIn("| bidirectional_rrt | 0 | ChemLab1 | actor-bidirectional_rrt-0 |", summary)
-            self.assertIn("| Current actors |  | ChemLab1 | baseline-ChemLab1 |", summary)
+            self.assertIn("| Actor | bidirectional_rrt | Current actors |", summary)
+            self.assertIn("| Cast Call | 0 |  |", summary)
+            self.assertIn("| Production | ChemLab1 | ChemLab1 |", summary)
+            self.assertIn(
+                "| Cast Production | actor-bidirectional_rrt-0 | baseline-ChemLab1 |", summary
+            )
             self.assertIn("#### Production Comparison", summary)
             self.assertIn("| ShelfPlanning1 | production-ShelfPlanning1 | Current actors |", summary)
 

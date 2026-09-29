@@ -334,6 +334,25 @@ def _append_results_table(
         lines.append("| " + " | ".join(row) + " |")
 
 
+def _append_transposed_results_table(
+    lines: list[str],
+    heading: str,
+    field_names: list[str],
+    columns: list[list[str]],
+) -> None:
+    """Render a table where each entry of `columns` is a column; the first value becomes its header."""
+    if not columns:
+        return
+
+    lines.append(heading)
+    lines.append("| " + " | ".join([field_names[0]] + [column[0] for column in columns]) + " |")
+    lines.append("| " + " | ".join(["---"] * (len(columns) + 1)) + " |")
+    for index, field_name in enumerate(field_names[1:], start=1):
+        lines.append(
+            "| " + " | ".join([field_name] + [column[index] for column in columns]) + " |"
+        )
+
+
 def build_summary(results_directories: str) -> str:
     files = _collect_result_files(_parse_directories(results_directories))
 
@@ -394,7 +413,7 @@ def build_summary(results_directories: str) -> str:
                 *result_values(row, actor_metric_names),
             ]
         )
-    _append_results_table(
+    _append_transposed_results_table(
         lines,
         "#### Actor Comparison",
         [
@@ -405,9 +424,9 @@ def build_summary(results_directories: str) -> str:
             "Exit Code",
             "Duration (s)",
             "Status",
+            *[name.replace("|", "\\|") for name in actor_metric_names],
         ],
         actor_table_rows,
-        [name.replace("|", "\\|") for name in actor_metric_names],
     )
 
     production_metric_names = _metric_names(production_rows)
