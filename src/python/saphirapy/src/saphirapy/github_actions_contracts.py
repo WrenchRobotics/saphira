@@ -1,10 +1,32 @@
 import ast
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from saphirapy.productions.cast_member_registry import get_alternatives_for_type
 from saphirapy.restaging import BromRestagingManager
+from saphirapy.fanout import normalize_fanout_cases
+
+
+class ResultRecord(TypedDict):
+    production: str
+    production_class: str
+    exit_code: str
+    duration_seconds: str
+    status: str
+    comparison_type: str
+    comparison_metadata: dict[str, Any]
+    metrics: dict[str, str]
+
+
+def _comparison_metadata(
+    comparison_type: str,
+    **metadata: Any,
+) -> dict[str, Any]:
+    return {
+        "comparison-type": comparison_type,
+        **{key.replace("_", "-"): value for key, value in metadata.items()},
+    }
 
 
 def parse_detection_outputs(detection_json: str) -> dict[str, str]:
@@ -111,12 +133,18 @@ def build_cast_production_outputs(
                     }
                 )
 
-    cast_productions: list[dict[str, str]] = [
+    cast_productions: list[dict[str, Any]] = [
         {
             "production-class": str(production),
             "actor-variant-json": "",
             "cast-production-name": f"production-{production}",
             "artifact-name": f"matrix-result-{production}",
+            "comparison-metadata-json": json.dumps(
+                _comparison_metadata(
+                    "production",
+                    actor_configuration="current",
+                )
+            ),
         }
         for production in related_productions
     ]
@@ -126,9 +154,19 @@ def build_cast_production_outputs(
             "actor-variant-json": json.dumps(actor),
             "cast-production-name": f"actor-{actor['name']}-{actor['cast_call_index']}",
             "artifact-name": f"actor-result-{actor['name']}-{actor['cast_call_index']}",
+            "comparison-metadata-json": json.dumps(
+                _comparison_metadata(
+                    "actor",
+                    actor_name=actor["name"],
+                    cast_call_index=actor["cast_call_index"],
+                    current_actor_class=actor.get("current_actor_class"),
+                    actor_type=actor.get("actor_type"),
+                )
+            ),
         }
         for actor in alternative_actors
     )
+    cast_productions = normalize_fanout_cases(cast_productions)
 
     return {
         "detected-production": detected_production,
@@ -169,6 +207,7 @@ def finalize_result_payload(
     duration_seconds: float,
     restaged_file_default: str,
     cast_production_name: str | None = None,
+    comparison_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     if result_json_path.exists():
@@ -184,6 +223,11 @@ def finalize_result_payload(
     payload["timed_out"] = exit_code == 124
     if cast_production_name is not None:
         payload["cast_production_name"] = cast_production_name
+    if comparison_metadata:
+        payload["comparison_metadata"] = comparison_metadata
+        comparison_type = comparison_metadata.get("comparison-type")
+        if comparison_type is not None:
+            payload["comparison_type"] = str(comparison_type)
 
     result_json_path.parent.mkdir(parents=True, exist_ok=True)
     result_json_path.write_text(json.dumps(payload, indent=2))
@@ -205,6 +249,110 @@ def _collect_result_files(directories: list[Path]) -> list[Path]:
     return files
 
 
+def _classify_comparison(
+    payload: dict[str, Any], fallback_name: str
+) -> tuple[str, dict[str, Any]]:
+    metadata = payload.get("comparison_metadata")
+    if isinstance(metadata, dict):
+        comparison_type = metadata.get("comparison-type") or metadata.get("comparison_type")
+        if comparison_type in {"actor", "production", "unmapped"}:
+            return str(comparison_type), metadata
+
+    comparison_type = payload.get("comparison_type")
+    if comparison_type in {"actor", "production", "unmapped"}:
+        return str(comparison_type), metadata if isinstance(metadata, dict) else {}
+
+    if fallback_name.startswith("actor-"):
+        return "actor", {}
+    if fallback_name.startswith("baseline-") or fallback_name.startswith("production-"):
+        return "production", {}
+    return "unmapped", {}
+
+
+def _normalize_result_file(file_path: Path) -> ResultRecord:
+    production = file_path.stem
+    production_class = file_path.stem
+    exit_code = "parse_error"
+    duration_seconds = "n/a"
+    metrics: dict[str, str] = {}
+    comparison_type = "unmapped"
+    comparison_metadata: dict[str, Any] = {}
+
+    try:
+        payload = json.loads(file_path.read_text())
+        if not isinstance(payload, dict):
+            raise ValueError("result payload must be an object")
+        comparison_name = str(payload.get("cast_production_name") or file_path.stem)
+        production = str(payload.get("cast_production_name") or file_path.stem)
+        production_class = str(payload.get("production_class") or production_class)
+        exit_code = str(payload.get("exit_code", "unknown"))
+        duration_seconds = str(payload.get("duration_seconds", "n/a"))
+        comparison_type, comparison_metadata = _classify_comparison(payload, comparison_name)
+        metrics_payload = payload.get("metrics")
+        if isinstance(metrics_payload, dict):
+            metrics = {str(name): str(value) for name, value in metrics_payload.items()}
+    except Exception:
+        pass
+
+    return {
+        "production": production,
+        "production_class": production_class,
+        "exit_code": exit_code,
+        "duration_seconds": duration_seconds,
+        "status": "passed" if exit_code == "0" else "failed",
+        "comparison_type": comparison_type,
+        "comparison_metadata": comparison_metadata,
+        "metrics": metrics,
+    }
+
+
+def _metric_names(rows: list[ResultRecord]) -> list[str]:
+    names: list[str] = []
+    for row in rows:
+        for name in row["metrics"]:
+            if name not in names:
+                names.append(name)
+    return names
+
+
+def _append_results_table(
+    lines: list[str],
+    heading: str,
+    headers: list[str],
+    rows: list[list[str]],
+    metric_names: list[str],
+) -> None:
+    if not rows:
+        return
+
+    lines.append(heading)
+    full_headers = headers + metric_names
+    lines.append("| " + " | ".join(full_headers) + " |")
+    alignments = ["---"] * len(headers) + ["---:"] * len(metric_names)
+    lines.append("| " + " | ".join(alignments) + " |")
+    for row in rows:
+        lines.append("| " + " | ".join(row) + " |")
+
+
+def _append_transposed_results_table(
+    lines: list[str],
+    heading: str,
+    field_names: list[str],
+    columns: list[list[str]],
+) -> None:
+    """Render a table where each entry of `columns` is a column; the first value becomes its header."""
+    if not columns:
+        return
+
+    lines.append(heading)
+    lines.append("| " + " | ".join([field_names[0]] + [column[0] for column in columns]) + " |")
+    lines.append("| " + " | ".join(["---"] * (len(columns) + 1)) + " |")
+    for index, field_name in enumerate(field_names[1:], start=1):
+        lines.append(
+            "| " + " | ".join([field_name] + [column[index] for column in columns]) + " |"
+        )
+
+
 def build_summary(results_directories: str) -> str:
     files = _collect_result_files(_parse_directories(results_directories))
 
@@ -217,70 +365,127 @@ def build_summary(results_directories: str) -> str:
     fail_count = 0
     parse_error_count = 0
 
-    rows: list[tuple[str, str, str, str]] = []
-    metric_names: list[str] = []
-    metrics_by_production: dict[str, dict[str, str]] = {}
+    rows: list[ResultRecord] = []
     for file_path in files:
-        production = file_path.stem
-        exit_code = "parse_error"
-        status = "failed"
-        duration_seconds = "n/a"
-
-        try:
-            payload = json.loads(file_path.read_text())
-            production = str(
-                payload.get("cast_production_name") or payload.get("production_class") or production
-            )
-            exit_code = str(payload.get("exit_code", "unknown"))
-            duration_seconds = str(payload.get("duration_seconds", "n/a"))
-            metrics_payload = payload.get("metrics")
-            if isinstance(metrics_payload, dict) and metrics_payload:
-                production_metrics = metrics_by_production.setdefault(production, {})
-                for metric_name, metric_value in metrics_payload.items():
-                    metric_name_str = str(metric_name)
-                    if metric_name_str not in metric_names:
-                        metric_names.append(metric_name_str)
-                    production_metrics[metric_name_str] = str(metric_value)
-        except Exception:
+        row = _normalize_result_file(file_path)
+        if row["exit_code"] == "parse_error":
             parse_error_count += 1
-
-        if exit_code == "0":
-            status = "passed"
+        if row["status"] == "passed":
             pass_count += 1
         else:
             fail_count += 1
 
-        rows.append((production, exit_code, duration_seconds, status))
+        rows.append(row)
 
-    lines.append("| Production | Exit Code | Duration (s) | Status |")
-    lines.append("| --- | ---: | ---: | --- |")
-    for production, exit_code, duration_seconds, status in rows:
-        lines.append(f"| {production} | {exit_code} | {duration_seconds} | {status} |")
+    production_rows = [row for row in rows if row["comparison_type"] == "production"]
+    actor_rows = [row for row in rows if row["comparison_type"] == "actor"]
+    actor_rows.extend(
+        row for row in production_rows if row["production"].startswith("baseline-")
+    )
+    other_rows = [row for row in rows if row["comparison_type"] == "unmapped"]
+
+    def result_values(row: ResultRecord, values: list[str]) -> list[str]:
+        metric_values = [row["metrics"].get(name, "") for name in values]
+        return [value.replace("|", "\\|") for value in metric_values]
+
+    actor_metric_names = _metric_names(actor_rows)
+    actor_table_rows: list[list[str]] = []
+    for row in actor_rows:
+        metadata = row["comparison_metadata"]
+        actor_name = str(
+            metadata.get("actor-name")
+            or metadata.get("actor_name")
+            or "Current actors"
+        )
+        cast_call_value = metadata.get("cast-call-index")
+        if cast_call_value is None:
+            cast_call_value = metadata.get("cast_call_index")
+        cast_call_index = "" if cast_call_value is None else str(cast_call_value)
+        actor_table_rows.append(
+            [
+                actor_name.replace("|", "\\|"),
+                cast_call_index.replace("|", "\\|"),
+                row["production_class"].replace("|", "\\|"),
+                row["production"].replace("|", "\\|"),
+                row["exit_code"],
+                row["duration_seconds"],
+                row["status"],
+                *result_values(row, actor_metric_names),
+            ]
+        )
+    _append_transposed_results_table(
+        lines,
+        "#### Actor Comparison",
+        [
+            "Actor",
+            "Cast Call",
+            "Production",
+            "Cast Production",
+            "Exit Code",
+            "Duration (s)",
+            "Status",
+            *[name.replace("|", "\\|") for name in actor_metric_names],
+        ],
+        actor_table_rows,
+    )
+
+    production_metric_names = _metric_names(production_rows)
+    production_table_rows: list[list[str]] = []
+    for row in production_rows:
+        metadata = row["comparison_metadata"]
+        actor_configuration = str(
+            metadata.get("actor-configuration")
+            or metadata.get("actor_configuration")
+            or "Current actors"
+        )
+        production_table_rows.append(
+            [
+                row["production_class"].replace("|", "\\|"),
+                row["production"].replace("|", "\\|"),
+                actor_configuration.replace("|", "\\|"),
+                row["exit_code"],
+                row["duration_seconds"],
+                row["status"],
+                *result_values(row, production_metric_names),
+            ]
+        )
+    _append_transposed_results_table(
+        lines,
+        "#### Production Comparison",
+        [
+            "Production",
+            "Cast Production",
+            "Actor Configuration",
+            "Exit Code",
+            "Duration (s)",
+            "Status",
+            *[name.replace("|", "\\|") for name in production_metric_names],
+        ],
+        production_table_rows,
+    )
+
+    other_metric_names = _metric_names(other_rows)
+    other_table_rows: list[list[str]] = []
+    for row in other_rows:
+        other_table_rows.append(
+            [
+                row["production_class"].replace("|", "\\|"),
+                row["exit_code"],
+                row["duration_seconds"],
+                row["status"],
+                *result_values(row, other_metric_names),
+            ]
+        )
+    _append_results_table(
+        lines,
+        "#### Other Results",
+        ["Result", "Exit Code", "Duration (s)", "Status"],
+        other_table_rows,
+        [name.replace("|", "\\|") for name in other_metric_names],
+    )
 
     lines.append("")
     lines.append(f"Totals: {pass_count} passed, {fail_count} failed")
-    if metric_names:
-        lines.append("")
-        lines.append("Additional Metrics:")
-        safe_metric_names = [metric_name.replace("|", "\\|") for metric_name in metric_names]
-        lines.append("| Production | " + " | ".join(safe_metric_names) + " |")
-        lines.append("| --- | " + " | ".join("---:" for _ in metric_names) + " |")
-
-        production_order = [production for production, _, _, _ in rows]
-        seen_productions: set[str] = set()
-        for production in production_order:
-            if production in seen_productions:
-                continue
-            seen_productions.add(production)
-            production_metrics = metrics_by_production.get(production)
-            if not production_metrics:
-                continue
-
-            metric_values: list[str] = []
-            for metric_name in metric_names:
-                value = production_metrics.get(metric_name, "")
-                metric_values.append(value.replace("|", "\\|"))
-            lines.append(f"| {production} | " + " | ".join(metric_values) + " |")
     if parse_error_count:
         lines.append(f"Warning: {parse_error_count} result file(s) could not be parsed")
 
