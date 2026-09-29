@@ -29,6 +29,11 @@ def locate_example(path: Path) -> Path:
     raise FileNotFoundError(f"No production example found under {path}")
 
 
+def _case_comparison_metadata(case: dict[str, str]) -> dict | None:
+    raw = case.get("comparison-metadata-json")
+    return json.loads(raw) if raw else None
+
+
 def _run_case(case: dict[str, str], target_file: str, restaged_root: str, results_root: str,
               run_timeout_seconds: int) -> dict[str, str]:
     case_id = case["case-id"]
@@ -72,6 +77,7 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
         duration,
         str(output_dir),
         case["cast-production-name"],
+        _case_comparison_metadata(case),
     )
     payload["case_id"] = case_id
     payload["fanout_source"] = case.get("source", "local")
@@ -88,6 +94,7 @@ def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exce
         0.0,
         "",
         case["cast-production-name"],
+        _case_comparison_metadata(case),
     )
     payload["case_id"] = case["case-id"]
     payload["fanout_source"] = case.get("source", "local")
