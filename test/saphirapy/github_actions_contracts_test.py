@@ -159,10 +159,8 @@ class TestGitHubActionContracts(unittest.TestCase):
 
             summary = build_summary(f"{first_results_dir}\n{second_results_dir}")
 
-            self.assertIn(
-                "| ShelfPlanning1 | baseline-ChemLab1 | Current actors | 0 | 12.5 | passed |",
-                summary,
-            )
+            self.assertIn("| Production | ShelfPlanning1 |", summary)
+            self.assertIn("| Actor Configuration | Current actors |", summary)
             self.assertIn("#### Actor Comparison", summary)
             self.assertIn("| Actor | Current actors |", summary)
             self.assertIn("| Cast Production | baseline-ChemLab1 |", summary)
@@ -260,7 +258,10 @@ class TestGitHubActionContracts(unittest.TestCase):
                 "| Cast Production | actor-bidirectional_rrt-0 | baseline-ChemLab1 |", summary
             )
             self.assertIn("#### Production Comparison", summary)
-            self.assertIn("| ShelfPlanning1 | production-ShelfPlanning1 | Current actors |", summary)
+            self.assertIn("| Production | ChemLab1 | ShelfPlanning1 |", summary)
+            self.assertIn(
+                "| Cast Production | baseline-ChemLab1 | production-ShelfPlanning1 |", summary
+            )
 
     def test_summary_omits_empty_comparison_sections(self):
         with TemporaryDirectory() as tmpdir:
@@ -305,7 +306,8 @@ class TestGitHubActionContracts(unittest.TestCase):
             summary = build_summary(str(results_directory))
 
             self.assertIn("#### Production Comparison", summary)
-            self.assertIn("| ShelfPlanning1 | production-ShelfPlanning1 |", summary)
+            self.assertIn("| Production | ShelfPlanning1 |", summary)
+            self.assertIn("| Cast Production | production-ShelfPlanning1 |", summary)
             self.assertIn("#### Other Results", summary)
             self.assertIn("| broken | parse_error | n/a | failed |", summary)
             self.assertIn("Warning: 1 result file(s) could not be parsed", summary)

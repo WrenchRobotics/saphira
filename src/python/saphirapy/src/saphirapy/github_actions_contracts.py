@@ -449,7 +449,7 @@ def build_summary(results_directories: str) -> str:
                 *result_values(row, production_metric_names),
             ]
         )
-    _append_results_table(
+    _append_transposed_results_table(
         lines,
         "#### Production Comparison",
         [
@@ -459,9 +459,9 @@ def build_summary(results_directories: str) -> str:
             "Exit Code",
             "Duration (s)",
             "Status",
+            *[name.replace("|", "\\|") for name in production_metric_names],
         ],
         production_table_rows,
-        [name.replace("|", "\\|") for name in production_metric_names],
     )
 
     other_metric_names = _metric_names(other_rows)
