@@ -3,9 +3,12 @@ import json
 from pathlib import Path
 from typing import Any, TypedDict
 
-from saphirapy.productions.cast_member_registry import get_alternatives_for_type
+from saphirapy.productions.cast_member_registry import (
+    CAST_MEMBER_ALTERNATIVES,
+    get_alternatives_for_type,
+)
 from saphirapy.restaging import BromRestagingManager
-from saphirapy.fanout import normalize_fanout_cases
+from saphirapy.fanout import ActorResolver, RemoteActorUnavailable, normalize_fanout_cases
 
 
 class ResultRecord(TypedDict):
@@ -99,6 +102,42 @@ def find_alternative_actors_for_production(production_file: Path) -> list[dict[s
         )
 
     return actors
+
+
+def build_remote_actor_resolver(production_file: Path) -> ActorResolver:
+    """Resolve remote ``{"cast_call_index", "actor"}`` references against the local registry.
+
+    A reference expands to exactly the actor variant a local case for the same alternative
+    would carry, so executable code only ever comes from this installed Saphira version.
+    """
+    alternatives_by_call: dict[int, dict[str, dict[str, Any]]] | None = None
+
+    def resolve(cast_call_index: int, actor_name: str) -> dict[str, Any]:
+        nonlocal alternatives_by_call
+        if alternatives_by_call is None:
+            alternatives_by_call = {
+                actor["cast_call_index"]: {
+                    alternative["name"]: alternative for alternative in actor["alternatives"]
+                }
+                for actor in find_alternative_actors_for_production(production_file)
+            }
+        registered = {
+            option.name for options in CAST_MEMBER_ALTERNATIVES.values() for option in options
+        }
+        if actor_name not in registered:
+            raise RemoteActorUnavailable(
+                f"actor {actor_name!r} is not in this Saphira version's actor registry "
+                "(it may need a newer saphira release)"
+            )
+        alternative = alternatives_by_call.get(cast_call_index, {}).get(actor_name)
+        if alternative is None:
+            raise RemoteActorUnavailable(
+                f"actor {actor_name!r} is not an alternative for cast call {cast_call_index} "
+                f"in {production_file.name}"
+            )
+        return {"cast_call_index": cast_call_index, **alternative}
+
+    return resolve
 
 
 def build_cast_production_outputs(
