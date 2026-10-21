@@ -12,11 +12,21 @@ from pathlib import Path
 from tqdm import tqdm
 
 from saphirapy.detect_production_map import detect_production_mapping
-from saphirapy.fanout import FanoutResolution, resolve_fanout
+from saphirapy.fanout import FANOUT_TOKEN_ENV, FanoutResolution, resolve_fanout
 from saphirapy.github_actions_contracts import (
     build_cast_production_outputs,
+    build_remote_actor_resolver,
     finalize_result_payload,
 )
+
+# The fanout service bounds local_cases; it only reads their identity, so send no more than that.
+MAX_CONTEXT_LOCAL_CASES = 500
+_GITHUB_CONTEXT_ENV = {
+    "repository": "GITHUB_REPOSITORY",
+    "sha": "GITHUB_SHA",
+    "run_id": "GITHUB_RUN_ID",
+    "run_attempt": "GITHUB_RUN_ATTEMPT",
+}
 
 
 def locate_example(path: Path) -> Path:
@@ -178,6 +188,52 @@ def run_fanout(
     return sorted(completed, key=lambda result: result["case-id"])
 
 
+def parse_fanout_kinds(raw: str | None) -> list[str] | None:
+    """Parse a comma-separated kind list; empty means "everything the key permits" (None)."""
+    kinds = list(dict.fromkeys(kind.strip() for kind in (raw or "").split(",") if kind.strip()))
+    return kinds or None
+
+
+def build_fanout_context(
+    detection: dict,
+    local_cases: list[dict[str, str]],
+    fanout_kinds: list[str] | None = None,
+    environ: dict[str, str] | None = None,
+) -> dict:
+    """Describe this run to the fanout service. Every field is a selection hint, not a credential."""
+    environ = os.environ if environ is None else environ
+    context: dict = {
+        key: environ[name] for key, name in _GITHUB_CONTEXT_ENV.items() if environ.get(name)
+    }
+    for key, detection_key in (
+        ("detected_parent", "detected_parent_class"),
+        ("detected_production", "detected_production_class"),
+    ):
+        value = detection.get(detection_key)
+        if value and value != "UNMAPPED":
+            context[key] = str(value)
+    if fanout_kinds:
+        context["fanout_kinds"] = fanout_kinds
+    context["local_cases"] = [
+        {"case-id": case["case-id"], "production-class": case["production-class"]}
+        for case in local_cases[:MAX_CONTEXT_LOCAL_CASES]
+    ]
+    return context
+
+
+def report_fanout_warnings(warnings: list[str], summary_path: str | None) -> None:
+    """Surface skipped remote cases as workflow annotations and in the job summary."""
+    if not warnings:
+        return
+    for warning in warnings:
+        print(f"::warning title=Saphira fanout::{warning}", flush=True)
+    if summary_path:
+        with Path(summary_path).open("a", encoding="utf-8") as handle:
+            handle.write("### Saphira fanout warnings\n\n")
+            handle.writelines(f"- {warning}\n" for warning in warnings)
+            handle.write("\n")
+
+
 def write_output(path: str | None, key: str, value: str) -> None:
     if not path:
         return
@@ -193,7 +249,17 @@ def main() -> int:
     parser.add_argument("--path-to-example-run", type=Path, required=True)
     parser.add_argument("--fanout-source", choices=("local", "remote", "remote-with-fallback"), default="local")
     parser.add_argument("--fanout-endpoint")
-    parser.add_argument("--fanout-token")
+    parser.add_argument(
+        "--fanout-token",
+        help=f"Bearer token for the fanout endpoint. Prefer the {FANOUT_TOKEN_ENV} environment "
+        "variable, which keeps the token out of the process list.",
+    )
+    parser.add_argument(
+        "--fanout-kinds",
+        default="",
+        help="Comma-separated remote fanout kinds, e.g. productions,casts. Empty requests every "
+        "kind the token permits.",
+    )
     parser.add_argument("--fanout-timeout-seconds", type=float, default=10.0)
     parser.add_argument("--include-alternative-productions", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--include-alternative-actors", action=argparse.BooleanOptionalAction, default=False)
@@ -220,7 +286,12 @@ def main() -> int:
         endpoint=args.fanout_endpoint,
         token=args.fanout_token,
         timeout_seconds=args.fanout_timeout_seconds,
+        context=build_fanout_context(
+            detection, local_cases, parse_fanout_kinds(args.fanout_kinds)
+        ),
+        actor_resolver=build_remote_actor_resolver(target_file),
     )
+    report_fanout_warnings(resolution.warnings, os.environ.get("GITHUB_STEP_SUMMARY"))
     results = run_fanout(
         target_file,
         resolution,

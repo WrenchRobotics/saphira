@@ -15,20 +15,27 @@ The `saphira-run` action is the single-entry-point interface for detecting and r
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-For a remote service with local fallback, provide the endpoint and a token through a secret:
+To add corner cases from the Wrench fanout service, store a Wrench API key as a repository secret
+and point the action at the service:
 
 ```yaml
-- name: Run Saphira with optional premium cases
-  uses: kwesirutledge/saphira/.github/actions/saphira-run@main
+- uses: ./.github/actions/saphira-run
   with:
     path-to-example-run: src/examples/motion_planning1/chem.py
     fanout-source: remote-with-fallback
-    fanout-endpoint: https://fanout.example.com/v1/cases
-    fanout-token: ${{ secrets.SAPHIRA_FANOUT_TOKEN }}
+    fanout-endpoint: https://api.wrenchrobotics.com/v1/saphira/fanout
+    fanout-token: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
+    fanout-kinds: productions,casts   # optional; defaults to everything the key allows
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-`local` never contacts the service. `remote` fails if the service cannot provide cases. `remote-with-fallback` uses local cases when the service is unreachable or returns a retryable server error, but still fails for invalid responses or authorization errors. Remote cases are deduplicated against local cases by `case-id` and retain their source in result JSON.
+`local` never contacts the service. `remote` fails if the service cannot provide cases. `remote-with-fallback` uses local cases when the service is unreachable or returns a retryable server error, and when no token is available (as on pull requests from forks, where secrets are withheld). It still fails for invalid responses and authorization errors, including a `fanout-kinds` entry the key does not permit; the error names the missing scope. Remote cases are deduplicated against local cases by `case-id` and retain their source in result JSON.
+
+The action passes the token to the facade through the `FANOUT_TOKEN` environment variable, never on the command line. When running `saphira-run-facade` yourself, prefer `FANOUT_TOKEN` over `--fanout-token` for the same reason.
+
+The facade POSTs the detected parent and production, the local case IDs, and the `GITHUB_REPOSITORY`, `GITHUB_SHA`, `GITHUB_RUN_ID`, and `GITHUB_RUN_ATTEMPT` values so the service can choose relevant cases.
+
+**Remote cases are data, never code.** A remote actor case only names a registered actor (`{"cast_call_index": 0, "actor": "bidirectional_rrt"}`), and Saphira expands it from the actor registry of the installed `saphira` version. A remote case that carries `import_statements`, `instantiation_code`, `variable_name`, or `method_to_call` fails the run under every fanout source. A remote actor this version does not know about, or one that does not fit the production's cast call, is skipped with a warning in the job summary.
 
 For external consumers, pin the action to a release tag and commit SHA rather than `main` once releases are available.
 
