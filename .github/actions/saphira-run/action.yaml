@@ -51,6 +51,10 @@ inputs:
   restaged-output-directory:
     required: false
     default: productions/facade-restaged
+  artifact-name:
+    description: Name of the uploaded results artifact; must be unique within a workflow run.
+    required: false
+    default: saphira-facade-results
   section-key:
     required: false
     default: saphira-facade
@@ -119,7 +123,7 @@ runs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: saphira-facade-results
+        name: ${{ inputs.artifact-name }}
         path: |
           ${{ inputs.results-directory }}
           ${{ inputs.restaged-output-directory }}

@@ -1,0 +1,51 @@
+name: Saphira Facade Staging Run
+
+# Integration check against the staging backend. Advisory: a failure can come from saphira,
+# the backend, or staging being down, so this should not be a required check.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  PYTHON_VERSION: '3.14'
+  STAGING_API_BASE: https://api-staging.wrenchrobotics.com
+
+jobs:
+  run-facade:
+    # Fork PRs do not receive secrets, so only run PRs opened from this repository.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    name: Run Saphira facade with staging fanout
+    environment: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check staging backend health
+        run: curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 10 "$STAGING_API_BASE/healthz"
+
+      - name: Run facade with remote fanout
+        uses: ./.github/actions/saphira-run
+        with:
+          path-to-example-run: src/examples/motion_planning1/chem.py
+          # No fallback: an unreachable staging backend should fail this check, not pass as a local run.
+          fanout-source: remote
+          fanout-endpoint: ${{ env.STAGING_API_BASE }}/v1/saphira/fanout
+          fanout-token: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
+          include-alternative-actors: 'true'
+          max-concurrency: '2'
+          run-timeout-seconds: '300'
+          python-version: ${{ env.PYTHON_VERSION }}
+          artifact-name: saphira-facade-staging
+          section-key: saphira-facade-staging
+          section-heading: Saphira Facade Staging Results
+          github-token: ${{ secrets.GITHUB_TOKEN }}
