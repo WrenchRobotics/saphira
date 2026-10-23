@@ -25,7 +25,6 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     name: Run Saphira facade with staging fanout
-    environment: staging
     steps:
       - name: Checkout
         uses: actions/checkout@v4
