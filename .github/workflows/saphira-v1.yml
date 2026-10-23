@@ -11,7 +11,7 @@ env:
 
 jobs:
   run-facade:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Run Saphira v1 facade
     steps:
       - name: Checkout

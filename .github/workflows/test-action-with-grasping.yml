@@ -6,7 +6,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Prepare detection for grasping example
     permissions:
       contents: read
@@ -34,7 +34,7 @@ jobs:
 
   run-baseline:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Run current production with current actors
     steps:
       - name: Checkout
@@ -62,7 +62,7 @@ jobs:
   run-alternative-productions:
     needs: prepare
     if: needs.prepare.outputs.has-alternative-productions == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Run alternative productions with current actors
     strategy:
       fail-fast: false
@@ -94,7 +94,7 @@ jobs:
   run-alternative-actors:
     needs: prepare
     if: needs.prepare.outputs.has-alternative-actors == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Run current production with alternative actors
     strategy:
       fail-fast: false
@@ -127,7 +127,7 @@ jobs:
   summarize:
     needs: [prepare, run-baseline, run-alternative-productions, run-alternative-actors]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: read
       contents: read
