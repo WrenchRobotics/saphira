@@ -1,6 +1,6 @@
 name: Saphira Facade Local Run
 
-on: [pull_request, deployment]
+on: [pull_request, deployment, workflow_dispatch]
 
 permissions:
   contents: read
