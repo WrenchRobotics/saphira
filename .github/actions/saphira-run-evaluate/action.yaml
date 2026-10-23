@@ -65,7 +65,8 @@ runs:
       run: |
         set -euo pipefail
         pip install brom_drake
-        pip install -e src/python/saphirapy
+        # Install from this action's own checkout so the action works from any repository.
+        pip install "$GITHUB_ACTION_PATH/../../../src/python/saphirapy"
 
     - name: Restage and run production
       id: run-production
@@ -105,7 +106,7 @@ runs:
         end_epoch="$(python -c 'import time; print(time.time())')"
         duration_seconds="$(python -c "start=float('$start_epoch'); end=float('$end_epoch'); print(f'{max(0.0, end-start):.3f}')")"
 
-        python .github/actions/saphira-run-evaluate/finalize_result.py \
+        python "$GITHUB_ACTION_PATH/finalize_result.py" \
           "$result_json_path" \
           "${{ inputs.production-class }}" \
           "$exit_code" \

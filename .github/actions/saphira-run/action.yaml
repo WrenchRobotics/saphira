@@ -7,12 +7,15 @@ inputs:
     description: Example Python file or directory containing a production script.
     required: true
   fanout-source:
-    description: local, remote, or remote-with-fallback.
+    description: >-
+      local, remote, or remote-with-fallback. The default falls back to local cases when no token
+      is set or the service is unavailable.
     required: false
-    default: local
+    default: remote-with-fallback
   fanout-endpoint:
     description: Endpoint returning additional fanout cases.
     required: false
+    default: https://api.wrenchrobotics.com/v1/saphira/fanout
   fanout-token:
     description: Bearer token for the fanout endpoint, e.g. secrets.WRENCH_SAPHIRA_API_KEY.
     required: false
@@ -87,11 +90,14 @@ runs:
         python-version: ${{ inputs.python-version }}
 
     - name: Install dependencies
+      id: install
       shell: bash
       run: |
         set -euo pipefail
         pip install brom_drake
-        pip install -e src/python/saphirapy
+        # Install from this action's own checkout so the action works from any repository.
+        pip install "$GITHUB_ACTION_PATH/../../../src/python/saphirapy"
+        echo "collate-path=$GITHUB_ACTION_PATH/../saphira-collate-comment" >> "$GITHUB_OUTPUT"
 
     - name: Run Saphira facade
       id: run-facade
@@ -128,15 +134,41 @@ runs:
           ${{ inputs.results-directory }}
           ${{ inputs.restaged-output-directory }}
 
+    # A local `uses: ./.github/actions/...` would resolve against the caller's repository, so the
+    # collate scripts are called from this action's checkout instead.
     - name: Collate facade results
+      id: collate
       if: always()
-      uses: ./.github/actions/saphira-collate-comment
+      shell: bash
+      env:
+        RESULTS_DIRECTORIES: ${{ inputs.results-directory }}
+        COLLATE_PATH: ${{ steps.install.outputs.collate-path }}
+      run: |
+        set -euo pipefail
+        summary="$(python "$COLLATE_PATH/collate_results.py")"
+
+        {
+          echo "summary<<EOF"
+          printf '%s\n' "$summary"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Upsert facade PR comment
+      if: ${{ always() && github.event_name == 'pull_request' }}
+      # Fork PRs get a read-only token; the results are still in the uploaded artifacts.
+      continue-on-error: true
+      uses: actions/github-script@v7
+      env:
+        DETECTED_PARENT: ${{ steps.run-facade.outputs.detected-parent }}
+        SECTION_KEY: ${{ inputs.section-key }}
+        SECTION_HEADING: ${{ inputs.section-heading }}
+        RESULTS_DIRECTORIES: ${{ inputs.results-directory }}
+        COMBINED_SUMMARY: ${{ steps.collate.outputs.summary }}
+        UPSERT_SCRIPT: ${{ steps.install.outputs.collate-path }}/upsert_comment.js
       with:
-        results-directories: ${{ inputs.results-directory }}
-        section-key: ${{ inputs.section-key }}
-        section-heading: ${{ inputs.section-heading }}
-        detected-parent: ${{ steps.run-facade.outputs.detected-parent }}
         github-token: ${{ inputs.github-token }}
+        script: |
+          await require(process.env.UPSERT_SCRIPT)({ github, context, core });
 
     - name: Check facade results
       if: always()
