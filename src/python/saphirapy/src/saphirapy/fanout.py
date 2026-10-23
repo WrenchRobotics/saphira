@@ -18,6 +18,8 @@ from urllib.request import Request, urlopen
 
 FANOUT_SCHEMA_VERSION = 1
 FANOUT_TOKEN_ENV = "FANOUT_TOKEN"
+# urllib's default "Python-urllib/x.y" is blocked by CDN bot checks (e.g. Cloudflare error 1010).
+FANOUT_USER_AGENT = f"saphira-facade (fanout-schema/{FANOUT_SCHEMA_VERSION})"
 
 # Fields of a CastMemberOption that carry executable text. Only the local registry may supply them.
 CODE_FIELDS = frozenset(
@@ -264,7 +266,11 @@ def fetch_remote_fanout(
         endpoint,
         data=json.dumps(body).encode("utf-8"),
         method="POST",
-        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": FANOUT_USER_AGENT,
+        },
     )
     if token:
         request.add_header("Authorization", f"Bearer {token}")

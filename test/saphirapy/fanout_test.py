@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from saphirapy.facade import build_fanout_context, parse_fanout_kinds, report_fanout_warnings
 from saphirapy.fanout import (
     FANOUT_TOKEN_ENV,
+    FANOUT_USER_AGENT,
     FanoutRemoteError,
     RemoteActorUnavailable,
     resolve_fanout,
@@ -137,6 +138,7 @@ class FanoutTest(unittest.TestCase):
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.get_header("Content-type"), "application/json")
         self.assertEqual(request.get_header("Authorization"), f"Bearer {TOKEN}")
+        self.assertEqual(request.get_header("User-agent"), FANOUT_USER_AGENT)
         self.assertEqual(json.loads(request.data), {"schema_version": 1, **context})
 
     def test_request_without_context_still_sends_the_schema_version(self):
@@ -513,6 +515,7 @@ class FanoutMockServerTest(unittest.TestCase):
         self.assertEqual(resolution.cases[-1]["source"], "remote")
         self.assertEqual(received[0]["body"], {"schema_version": 1, "detected_production": "ChemLab1"})
         self.assertEqual(received[0]["headers"]["Authorization"], f"Bearer {TOKEN}")
+        self.assertEqual(received[0]["headers"]["User-Agent"], FANOUT_USER_AGENT)
 
     def test_real_http_server_service_error_uses_fallback(self):
         endpoint, _received = self.run_server(503, {"error": "temporarily unavailable"})
