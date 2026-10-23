@@ -9,7 +9,7 @@ inputs:
   python-version:
     description: Python version to use.
     required: false
-    default: '3.14.2'
+    default: '3.14'
   detected-parent:
     description: Detected parent production class name, for context in the comment.
     required: false
@@ -39,18 +39,21 @@ runs:
         python-version: ${{ inputs.python-version }}
 
     - name: Install dependencies
+      id: install
       shell: bash
       run: |
         set -euo pipefail
         pip install brom_drake
-        pip install -e src/python/saphirapy
+        # Install from this action's own checkout so the action works from any repository.
+        pip install "$GITHUB_ACTION_PATH/../../../src/python/saphirapy"
+        echo "action-path=$GITHUB_ACTION_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Build combined summary
       id: combined-summary
       shell: bash
       run: |
         set -euo pipefail
-        summary="$(RESULTS_DIRECTORIES='${{ inputs.results-directories }}' python .github/actions/saphira-collate-comment/collate_results.py)"
+        summary="$(RESULTS_DIRECTORIES='${{ inputs.results-directories }}' python "$GITHUB_ACTION_PATH/collate_results.py")"
 
         {
           echo "summary<<EOF"
@@ -60,6 +63,8 @@ runs:
 
     - name: Upsert combined PR comment
       if: ${{ github.event_name == 'pull_request' }}
+      # Fork PRs get a read-only token; the results are still in the uploaded artifacts.
+      continue-on-error: true
       uses: actions/github-script@v7
       env:
         COMMENT_MARKER: ${{ inputs.comment-marker }}
@@ -68,97 +73,8 @@ runs:
         SECTION_HEADING: ${{ inputs.section-heading }}
         RESULTS_DIRECTORIES: ${{ inputs.results-directories }}
         COMBINED_SUMMARY: ${{ steps.combined-summary.outputs.summary }}
+        UPSERT_SCRIPT: ${{ steps.install.outputs.action-path }}/upsert_comment.js
       with:
         github-token: ${{ inputs.github-token }}
         script: |
-          const marker = process.env.COMMENT_MARKER || '<!-- saphira-combined-metrics-comment -->';
-          const detectedParent = process.env.DETECTED_PARENT || '';
-          const combinedSummary = process.env.COMBINED_SUMMARY || '### Combined Saphira Metrics\n- Summary generation failed';
-          const commitSuffix = context.sha.slice(-7);
-          const runAttempt = process.env.GITHUB_RUN_ATTEMPT || '1';
-          const requestedSectionKey = (process.env.SECTION_KEY || '').trim();
-          const fallbackSectionKey = (process.env.RESULTS_DIRECTORIES || '').trim() || 'default';
-          const rawSectionKey = requestedSectionKey || fallbackSectionKey;
-          const normalizedSectionKey = rawSectionKey
-            .toLowerCase()
-            .replace(/[^a-z0-9._-]+/g, '-')
-            .replace(/^-+|-+$/g, '') || 'default';
-          const sectionHeading = (process.env.SECTION_HEADING || '').trim() || `Combined Saphira Metrics (${normalizedSectionKey})`;
-          const sectionStart = `<!-- saphira-collate-section:${normalizedSectionKey}:start -->`;
-          const sectionEnd = `<!-- saphira-collate-section:${normalizedSectionKey}:end -->`;
-          let artifactsLink = '';
-
-          try {
-            const artifacts = await github.paginate(
-              github.rest.actions.listWorkflowRunArtifacts,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: context.runId,
-                per_page: 100,
-              },
-            );
-            if (artifacts.length > 0) {
-              const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-              artifactsLink = `[View ${artifacts.length} workflow artifact(s)](${runUrl})`;
-            }
-          } catch (error) {
-            core.warning(`Could not list workflow artifacts: ${error.message}`);
-          }
-
-          const sectionBody = [
-            sectionStart,
-            `## ${sectionHeading}`,
-            detectedParent ? `Detected production parent: ${detectedParent}` : '',
-            `Trigger commit suffix: ${commitSuffix} (run attempt ${runAttempt})`,
-            artifactsLink,
-            '',
-            combinedSummary,
-            sectionEnd,
-          ].filter((line) => line !== null && line !== '').join('\n');
-
-          const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const sectionRegex = new RegExp(`${escapeRegex(sectionStart)}[\\s\\S]*?${escapeRegex(sectionEnd)}`, 'm');
-
-          const { data: comments } = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.payload.pull_request.number,
-            per_page: 100,
-          });
-
-          const existing = comments.find((c) =>
-            typeof c.body === 'string' && c.body.includes(marker)
-          );
-
-          if (existing) {
-            let body = (existing.body || '').trimEnd();
-
-            if (sectionRegex.test(body)) {
-              body = body.replace(sectionRegex, sectionBody);
-            } else {
-              body = [body, '', sectionBody].filter((line) => line !== '').join('\n');
-            }
-
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: existing.id,
-              body,
-            });
-          } else {
-            const body = [
-              marker,
-              '# Saphira Combined Run Results',
-              'Each section below corresponds to one collate invocation in this workflow.',
-              '',
-              sectionBody,
-            ].join('\n');
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body,
-            });
-          }
+          await require(process.env.UPSERT_SCRIPT)({ github, context, core });

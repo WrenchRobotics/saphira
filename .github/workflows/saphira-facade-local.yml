@@ -1,18 +1,28 @@
 name: Saphira Facade Local Run
 
-on: [pull_request, deployment]
+on: [pull_request, workflow_dispatch]
 
 permissions:
   contents: read
   pull-requests: write
 
 env:
-  PYTHON_VERSION: '3.14.2'
+  PYTHON_VERSION: '3.14'
 
 jobs:
   run-facade:
     runs-on: ubuntu-latest
-    name: Run local-only Saphira facade
+    name: Run local-only Saphira facade (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: motion-planning
+            path-to-example-run: src/examples/motion_planning1/chem.py
+            section-heading: Saphira Facade Local Results (Motion Planning)
+          - name: grasping
+            path-to-example-run: src/examples/grasping1/
+            section-heading: Saphira Facade Local Results (Grasping)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,12 +30,13 @@ jobs:
       - name: Run facade with local fanout
         uses: ./.github/actions/saphira-run
         with:
-          path-to-example-run: src/examples/motion_planning1/chem.py
+          path-to-example-run: ${{ matrix.path-to-example-run }}
           fanout-source: local
           include-alternative-actors: 'true'
           max-concurrency: '2'
           run-timeout-seconds: '300'
           python-version: ${{ env.PYTHON_VERSION }}
-          section-key: saphira-facade-local
-          section-heading: Saphira Facade Local Results
+          artifact-name: saphira-facade-local-${{ matrix.name }}
+          section-key: saphira-facade-local-${{ matrix.name }}
+          section-heading: ${{ matrix.section-heading }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
