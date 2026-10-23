@@ -9,7 +9,7 @@ inputs:
   python-version:
     description: Python version to use.
     required: false
-    default: '3.14.2'
+    default: '3.14'
   include-alternative-productions:
     description: Generate matrix entries for other production classes in the same family.
     required: false

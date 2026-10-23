@@ -2,11 +2,11 @@ name: Test Action with a Brom Drake Grasping Production
 on: [pull_request, deployment]
 
 env:
-  PYTHON_VERSION: '3.14.2'
+  PYTHON_VERSION: '3.14'
 
 jobs:
   prepare:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     name: Prepare detection for grasping example
     permissions:
       contents: read
@@ -34,7 +34,7 @@ jobs:
 
   run-baseline:
     needs: prepare
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     name: Run current production with current actors
     steps:
       - name: Checkout
@@ -62,7 +62,7 @@ jobs:
   run-alternative-productions:
     needs: prepare
     if: needs.prepare.outputs.has-alternative-productions == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     name: Run alternative productions with current actors
     strategy:
       fail-fast: false
@@ -94,7 +94,7 @@ jobs:
   run-alternative-actors:
     needs: prepare
     if: needs.prepare.outputs.has-alternative-actors == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     name: Run current production with alternative actors
     strategy:
       fail-fast: false
@@ -127,7 +127,7 @@ jobs:
   summarize:
     needs: [prepare, run-baseline, run-alternative-productions, run-alternative-actors]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read

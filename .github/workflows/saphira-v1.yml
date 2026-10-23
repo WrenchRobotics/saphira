@@ -7,11 +7,11 @@ permissions:
   pull-requests: write
 
 env:
-  PYTHON_VERSION: '3.14.2'
+  PYTHON_VERSION: '3.14'
 
 jobs:
   run-facade:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     name: Run Saphira v1 facade
     steps:
       - name: Checkout

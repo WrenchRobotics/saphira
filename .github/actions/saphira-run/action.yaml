@@ -44,7 +44,7 @@ inputs:
     default: auto
   python-version:
     required: false
-    default: '3.14.2'
+    default: '3.14'
   results-directory:
     required: false
     default: productions/facade-results
