@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from saphirapy.detect_production_map import detect_production_mapping
 from saphirapy.fanout import FANOUT_TOKEN_ENV, FanoutResolution, resolve_fanout
+from saphirapy.github_oidc import OIDC_MODES
 from saphirapy.github_actions_contracts import (
     build_cast_production_outputs,
     build_remote_actor_resolver,
@@ -260,6 +261,13 @@ def main() -> int:
         help="Comma-separated remote fanout kinds, e.g. productions,casts. Empty requests every "
         "kind the token permits.",
     )
+    parser.add_argument(
+        "--fanout-oidc",
+        choices=OIDC_MODES,
+        default="auto",
+        help="Send a GitHub Actions OIDC token with the fanout request, which keys tied to a "
+        "repository require: auto (when the workflow grants id-token: write), always, or never.",
+    )
     parser.add_argument("--fanout-timeout-seconds", type=float, default=10.0)
     parser.add_argument("--include-alternative-productions", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--include-alternative-actors", action=argparse.BooleanOptionalAction, default=False)
@@ -290,6 +298,7 @@ def main() -> int:
             detection, local_cases, parse_fanout_kinds(args.fanout_kinds)
         ),
         actor_resolver=build_remote_actor_resolver(target_file),
+        oidc=args.fanout_oidc,
     )
     report_fanout_warnings(resolution.warnings, os.environ.get("GITHUB_STEP_SUMMARY"))
     results = run_fanout(
@@ -307,6 +316,7 @@ def main() -> int:
         "detected-production": str(detection.get("detected_production_class") or "UNMAPPED"),
         "fanout-source": resolution.source,
         "remote-status": resolution.remote_status,
+        "oidc-status": resolution.oidc_status,
         "fanout-cases-json": json.dumps(resolution.cases),
         "results-directory": str(args.result_directory),
         "result-count": str(len(results)),

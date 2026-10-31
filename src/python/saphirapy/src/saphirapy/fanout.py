@@ -12,9 +12,19 @@ import os
 import re
 from dataclasses import dataclass, field
 from http.client import HTTPResponse
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from saphirapy.github_oidc import (
+    OIDC_HEADER,
+    OIDC_MODES,
+    PERMISSION_HINT,
+    OIDCTokenError,
+    audience_for,
+    oidc_available,
+    request_oidc_token,
+)
 
 FANOUT_SCHEMA_VERSION = 1
 FANOUT_TOKEN_ENV = "FANOUT_TOKEN"
@@ -54,6 +64,9 @@ class FanoutResolution:
     source: str
     remote_status: str
     warnings: list[str] = field(default_factory=list)
+    # Whether a GitHub Actions OIDC token went with the remote request: sent, unavailable (the job
+    # cannot request one), failed, disabled, or not-requested (no remote request was made).
+    oidc_status: str = "not-requested"
 
 
 def normalize_fanout_case(case: dict[str, Any], index: int) -> dict[str, str]:
@@ -256,11 +269,12 @@ def fetch_remote_fanout(
     endpoint: str,
     *,
     token: str | None = None,
+    oidc_token: str | None = None,
     timeout_seconds: float = 10.0,
     context: dict[str, Any] | None = None,
     opener: Callable[..., HTTPResponse] = urlopen,
 ) -> list[dict[str, Any]]:
-    """POST the run context and return the service's cases, never logging the bearer token."""
+    """POST the run context and return the service's cases, never logging either token."""
     body = {"schema_version": FANOUT_SCHEMA_VERSION, **(context or {})}
     request = Request(
         endpoint,
@@ -274,6 +288,8 @@ def fetch_remote_fanout(
     )
     if token:
         request.add_header("Authorization", f"Bearer {token}")
+    if oidc_token:
+        request.add_header(OIDC_HEADER, oidc_token)
 
     try:
         with opener(request, timeout=timeout_seconds) as response:
@@ -295,6 +311,8 @@ def resolve_fanout(
     timeout_seconds: float = 10.0,
     context: dict[str, Any] | None = None,
     actor_resolver: ActorResolver | None = None,
+    oidc: str = "auto",
+    environ: Mapping[str, str] | None = None,
     opener: Callable[..., HTTPResponse] = urlopen,
 ) -> FanoutResolution:
     """Resolve local cases and optional remote additions.
@@ -303,6 +321,10 @@ def resolve_fanout(
     falls back only for retryable transport/service failures and a missing token (as on fork
     pull requests, where secrets are unavailable). Invalid responses, remote cases carrying
     code, and authorization failures remain hard errors.
+
+    ``oidc`` decides whether a GitHub Actions OIDC token goes with the request, which keys tied
+    to a repository require: ``auto`` sends one when the job can get one, ``always`` fails
+    without one, and ``never`` sends none.
     """
     if source == "local":
         return FanoutResolution(merge_fanout_cases(local_cases, []), "local", "disabled")
@@ -310,6 +332,8 @@ def resolve_fanout(
         raise ValueError(f"Unknown fanout source: {source}")
     if not endpoint:
         raise ValueError("fanout endpoint is required for remote fanout")
+    if oidc not in OIDC_MODES:
+        raise ValueError(f"Unknown fanout OIDC mode: {oidc}")
 
     token = (token or os.environ.get(FANOUT_TOKEN_ENV) or "").strip() or None
     if token is None:
@@ -321,10 +345,14 @@ def resolve_fanout(
             f"fanout-source 'remote' needs a token: pass --fanout-token or set {FANOUT_TOKEN_ENV}"
         )
 
+    oidc_token, oidc_status, oidc_warnings = _oidc_token(
+        oidc, endpoint, environ=environ, timeout_seconds=timeout_seconds, opener=opener
+    )
     try:
         remote_cases = fetch_remote_fanout(
             endpoint,
             token=token,
+            oidc_token=oidc_token,
             timeout_seconds=timeout_seconds,
             context=context,
             opener=opener,
@@ -332,11 +360,51 @@ def resolve_fanout(
     except FanoutRemoteError as error:
         if source == "remote-with-fallback" and error.retryable:
             return FanoutResolution(
-                merge_fanout_cases(local_cases, []), "local-fallback", str(error)
+                merge_fanout_cases(local_cases, []),
+                "local-fallback",
+                str(error),
+                oidc_warnings,
+                oidc_status,
             )
         raise
 
     remote_cases, warnings = prepare_remote_cases(remote_cases, actor_resolver)
     return FanoutResolution(
-        merge_fanout_cases(local_cases, remote_cases), "local-plus-remote", "available", warnings
+        merge_fanout_cases(local_cases, remote_cases),
+        "local-plus-remote",
+        "available",
+        oidc_warnings + warnings,
+        oidc_status,
     )
+
+
+def _oidc_token(
+    mode: str,
+    endpoint: str,
+    *,
+    environ: Mapping[str, str] | None,
+    timeout_seconds: float,
+    opener: Callable[..., HTTPResponse],
+) -> tuple[str | None, str, list[str]]:
+    """Return the OIDC token to send (or ``None``), its status, and any warning about it."""
+    if mode == "never":
+        return None, "disabled", []
+    if not oidc_available(environ):
+        if mode == "always":
+            raise ValueError(
+                f"fanout-oidc 'always' needs a GitHub Actions OIDC token: {PERMISSION_HINT}"
+            )
+        return None, "unavailable", []
+    try:
+        token = request_oidc_token(
+            audience_for(endpoint),
+            environ=environ,
+            timeout_seconds=timeout_seconds,
+            opener=opener,
+        )
+    except OIDCTokenError as error:
+        if mode == "always":
+            raise
+        # Keys without a repository work without a token, so auto carries on and says why.
+        return None, "failed", [f"No GitHub Actions OIDC token was sent: {error}"]
+    return token, "sent", []
