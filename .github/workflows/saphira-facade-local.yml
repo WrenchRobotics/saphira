@@ -4,6 +4,9 @@ on: [pull_request, workflow_dispatch]
 
 permissions:
   contents: read
+  # Lets saphira-run prove which repository and run it reports from.
+  id-token: write
+  # Only for the workflow's own PR comment, the fallback when the app cannot post (fork PRs).
   pull-requests: write
 
 env:
@@ -32,6 +35,9 @@ jobs:
         with:
           path-to-example-run: ${{ matrix.path-to-example-run }}
           fanout-source: local
+          # Wrench Saphira [Staging] is installed on this repository, so it posts these results.
+          api-url: https://api-staging.wrenchrobotics.com
+          api-key: ${{ secrets.WRENCH_SAPHIRA_STAGING_API_KEY }}
           include-alternative-actors: 'true'
           max-concurrency: '2'
           run-timeout-seconds: '300'
@@ -39,4 +45,3 @@ jobs:
           artifact-name: saphira-facade-local-${{ matrix.name }}
           section-key: saphira-facade-local-${{ matrix.name }}
           section-heading: ${{ matrix.section-heading }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}

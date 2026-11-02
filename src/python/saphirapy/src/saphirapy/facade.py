@@ -12,7 +12,14 @@ from pathlib import Path
 from tqdm import tqdm
 
 from saphirapy.detect_production_map import detect_production_mapping
-from saphirapy.fanout import FANOUT_TOKEN_ENV, FanoutResolution, resolve_fanout
+from saphirapy.fanout import (
+    DEFAULT_API_URL,
+    FANOUT_PATH,
+    FANOUT_TOKEN_ENV,
+    FanoutResolution,
+    api_endpoint,
+    resolve_fanout,
+)
 from saphirapy.github_oidc import OIDC_MODES
 from saphirapy.github_actions_contracts import (
     build_cast_production_outputs,
@@ -46,7 +53,7 @@ def _case_comparison_metadata(case: dict[str, str]) -> dict | None:
 
 
 def _run_case(case: dict[str, str], target_file: str, restaged_root: str, results_root: str,
-              run_timeout_seconds: int) -> dict[str, str]:
+              run_timeout_seconds: int, request_id: str | None = None) -> dict[str, str]:
     case_id = case["case-id"]
     result_path = Path(results_root) / f"{case_id}.json"
     output_dir = Path(restaged_root) / case_id
@@ -92,11 +99,13 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
     )
     payload["case_id"] = case_id
     payload["fanout_source"] = case.get("source", "local")
+    payload["fanout_request_id"] = request_id
     result_path.write_text(json.dumps(payload, indent=2))
     return {"case-id": case_id, "result-json-path": str(result_path), "exit-code": str(exit_code)}
 
 
-def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exception) -> dict[str, str]:
+def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exception,
+                           request_id: str | None = None) -> dict[str, str]:
     result_path = results_root / f"{case['case-id']}.json"
     payload = finalize_result_payload(
         result_path,
@@ -109,6 +118,7 @@ def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exce
     )
     payload["case_id"] = case["case-id"]
     payload["fanout_source"] = case.get("source", "local")
+    payload["fanout_request_id"] = request_id
     payload["error"] = f"Worker failed: {error}"
     result_path.write_text(json.dumps(payload, indent=2))
     return {"case-id": case["case-id"], "result-json-path": str(result_path), "exit-code": "1"}
@@ -173,6 +183,7 @@ def run_fanout(
                     str(restaged_root),
                     str(results_root),
                     run_timeout_seconds,
+                    resolution.request_id,
                 ): case
                 for case in resolution.cases
             }
@@ -181,7 +192,9 @@ def run_fanout(
                 try:
                     result = future.result()
                 except Exception as error:
-                    result = _record_worker_failure(case, results_root, error)
+                    result = _record_worker_failure(
+                        case, results_root, error, resolution.request_id
+                    )
                 completed.append(result)
                 progress.record(result)
     finally:
@@ -249,7 +262,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Detect, augment, and run Saphira fanout cases.")
     parser.add_argument("--path-to-example-run", type=Path, required=True)
     parser.add_argument("--fanout-source", choices=("local", "remote", "remote-with-fallback"), default="local")
-    parser.add_argument("--fanout-endpoint")
+    parser.add_argument(
+        "--api-url",
+        default=DEFAULT_API_URL,
+        help="The Wrench API. The fanout endpoint and the OIDC audience are derived from it.",
+    )
+    parser.add_argument(
+        "--fanout-endpoint",
+        help=f"Deprecated: overrides the fanout endpoint, which defaults to {FANOUT_PATH} on "
+        "--api-url.",
+    )
     parser.add_argument(
         "--fanout-token",
         help=f"Bearer token for the fanout endpoint. Prefer the {FANOUT_TOKEN_ENV} environment "
@@ -291,7 +313,7 @@ def main() -> int:
     resolution = resolve_fanout(
         local_cases,
         source=args.fanout_source,
-        endpoint=args.fanout_endpoint,
+        endpoint=args.fanout_endpoint or api_endpoint(args.api_url, FANOUT_PATH),
         token=args.fanout_token,
         timeout_seconds=args.fanout_timeout_seconds,
         context=build_fanout_context(
@@ -317,6 +339,7 @@ def main() -> int:
         "fanout-source": resolution.source,
         "remote-status": resolution.remote_status,
         "oidc-status": resolution.oidc_status,
+        "fanout-request-id": resolution.request_id or "",
         "fanout-cases-json": json.dumps(resolution.cases),
         "results-directory": str(args.result_directory),
         "result-count": str(len(results)),

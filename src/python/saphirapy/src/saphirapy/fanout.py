@@ -28,6 +28,8 @@ from saphirapy.github_oidc import (
 
 FANOUT_SCHEMA_VERSION = 1
 FANOUT_TOKEN_ENV = "FANOUT_TOKEN"
+DEFAULT_API_URL = "https://api.wrenchrobotics.com"
+FANOUT_PATH = "/v1/saphira/fanout"
 # urllib's default "Python-urllib/x.y" is blocked by CDN bot checks (e.g. Cloudflare error 1010).
 FANOUT_USER_AGENT = f"saphira-facade (fanout-schema/{FANOUT_SCHEMA_VERSION})"
 
@@ -38,6 +40,8 @@ CODE_FIELDS = frozenset(
 # Remote identifiers become file paths, artifact names, and class lookups on the runner.
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,199}$")
+# The service's fanout request ID, echoed back in reports; anything else is ignored.
+_REQUEST_ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 _MAX_ERROR_DETAIL = 300
 
 
@@ -67,6 +71,13 @@ class FanoutResolution:
     # Whether a GitHub Actions OIDC token went with the remote request: sent, unavailable (the job
     # cannot request one), failed, disabled, or not-requested (no remote request was made).
     oidc_status: str = "not-requested"
+    # The service's ID for the fanout request, which links the run's report to it.
+    request_id: str | None = None
+
+
+def api_endpoint(api_url: str, path: str) -> str:
+    """Return the URL of ``path`` on the Wrench API at ``api_url``."""
+    return f"{api_url.rstrip('/')}{path}"
 
 
 def normalize_fanout_case(case: dict[str, Any], index: int) -> dict[str, str]:
@@ -232,7 +243,7 @@ def prepare_remote_cases(
 # --- Remote request ---------------------------------------------------------------------------
 
 
-def _decode_remote_cases(response: HTTPResponse) -> list[dict[str, Any]]:
+def _decode_remote_cases(response: HTTPResponse) -> tuple[list[dict[str, Any]], str | None]:
     try:
         payload = json.loads(response.read().decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -241,7 +252,10 @@ def _decode_remote_cases(response: HTTPResponse) -> list[dict[str, Any]]:
     cases = payload.get("cases") if isinstance(payload, dict) else payload
     if not isinstance(cases, list):
         raise FanoutRemoteError("Remote fanout response must contain a cases list", retryable=False)
-    return cases
+    request_id = payload.get("request_id") if isinstance(payload, dict) else None
+    if not isinstance(request_id, str) or not _REQUEST_ID.fullmatch(request_id):
+        request_id = None
+    return cases, request_id
 
 
 def _error_detail(body: Any) -> str:
@@ -273,8 +287,9 @@ def fetch_remote_fanout(
     timeout_seconds: float = 10.0,
     context: dict[str, Any] | None = None,
     opener: Callable[..., HTTPResponse] = urlopen,
-) -> list[dict[str, Any]]:
-    """POST the run context and return the service's cases, never logging either token."""
+) -> tuple[list[dict[str, Any]], str | None]:
+    """POST the run context and return the service's cases and request ID, never logging either
+    token."""
     body = {"schema_version": FANOUT_SCHEMA_VERSION, **(context or {})}
     request = Request(
         endpoint,
@@ -349,7 +364,7 @@ def resolve_fanout(
         oidc, endpoint, environ=environ, timeout_seconds=timeout_seconds, opener=opener
     )
     try:
-        remote_cases = fetch_remote_fanout(
+        remote_cases, request_id = fetch_remote_fanout(
             endpoint,
             token=token,
             oidc_token=oidc_token,
@@ -375,6 +390,7 @@ def resolve_fanout(
         "available",
         oidc_warnings + warnings,
         oidc_status,
+        request_id,
     )
 
 

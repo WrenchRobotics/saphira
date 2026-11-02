@@ -13,10 +13,11 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  # Sends a GitHub Actions OIDC token with the fanout request (fanout-oidc defaults to auto), as
-  # keys tied to this repository require.
+  # Sends a GitHub Actions OIDC token with the fanout request and the report, as keys tied to
+  # this repository and the reports endpoint require.
   id-token: write
+  # Only for the workflow's own PR comment, the fallback when the app cannot post.
+  pull-requests: write
 
 env:
   PYTHON_VERSION: '3.14'
@@ -41,8 +42,8 @@ jobs:
           path-to-example-run: src/examples/motion_planning1/chem.py
           # No fallback: an unreachable production backend should fail this check, not pass as a local run.
           fanout-source: remote
-          fanout-endpoint: ${{ env.API_BASE }}/v1/saphira/fanout
-          fanout-token: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
+          api-url: ${{ env.API_BASE }}
+          api-key: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
           include-alternative-actors: 'true'
           max-concurrency: '2'
           run-timeout-seconds: '300'
@@ -50,4 +51,3 @@ jobs:
           artifact-name: saphira-facade-production
           section-key: saphira-facade-production
           section-heading: Saphira Facade Production Results
-          github-token: ${{ secrets.GITHUB_TOKEN }}
