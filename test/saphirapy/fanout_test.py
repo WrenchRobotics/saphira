@@ -123,6 +123,24 @@ class FanoutTest(unittest.TestCase):
             "production-ChemLab1", "premium-ChemLab1"
         ])
         self.assertEqual(resolution.cases[1]["source"], "remote")
+        self.assertEqual(resolution.remote_case_count, 1)
+
+    def test_remote_cases_are_counted_whatever_the_service_labels_them(self):
+        opener = RecordingOpener(
+            {
+                "cases": [
+                    {"case-id": "wrench-a", "production-class": "ChemLab1", "source": "wrench"},
+                    {"case-id": "wrench-b", "production-class": "ChemLab1", "source": "local"},
+                ]
+            }
+        )
+
+        self.assertEqual(self.resolve(opener).remote_case_count, 2)
+
+    def test_local_and_fallback_runs_count_no_remote_cases(self):
+        self.assertEqual(resolve_fanout(self.local_cases).remote_case_count, 0)
+        fallback = self.resolve(RecordingOpener(), "remote-with-fallback", token="")
+        self.assertEqual(fallback.remote_case_count, 0)
 
     def test_request_id_from_the_service_is_kept(self):
         request_id = "0b6f3c2e-7f1a-4c55-9d0e-5a4b3c2d1e0f"

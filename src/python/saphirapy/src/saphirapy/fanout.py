@@ -73,6 +73,9 @@ class FanoutResolution:
     oidc_status: str = "not-requested"
     # The service's ID for the fanout request, which links the run's report to it.
     request_id: str | None = None
+    # Remote cases that will run. A remote case that repeats a local case runs once, as local. A
+    # case's "source" is the label the service gave it ("wrench"), so it cannot be counted on.
+    remote_case_count: int = 0
 
 
 def api_endpoint(api_url: str, path: str) -> str:
@@ -384,13 +387,15 @@ def resolve_fanout(
         raise
 
     remote_cases, warnings = prepare_remote_cases(remote_cases, actor_resolver)
+    cases = merge_fanout_cases(local_cases, remote_cases)
     return FanoutResolution(
-        merge_fanout_cases(local_cases, remote_cases),
+        cases,
         "local-plus-remote",
         "available",
         oidc_warnings + warnings,
         oidc_status,
         request_id,
+        remote_case_count=len(cases) - len(merge_fanout_cases(local_cases, [])),
     )
 
 
