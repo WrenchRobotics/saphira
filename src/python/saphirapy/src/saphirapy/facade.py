@@ -341,6 +341,8 @@ def main() -> int:
         "oidc-status": resolution.oidc_status,
         "fanout-request-id": resolution.request_id or "",
         "fanout-cases-json": json.dumps(resolution.cases),
+        # Remote cases that ran: remote cases that repeat a local case run once, as local.
+        "remote-case-count": str(sum(case["source"] == "remote" for case in resolution.cases)),
         "results-directory": str(args.result_directory),
         "result-count": str(len(results)),
         "failed-count": str(sum(result["exit-code"] != "0" for result in results)),

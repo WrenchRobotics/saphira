@@ -106,6 +106,9 @@ outputs:
   fanout-request-id:
     description: The Wrench API's ID for the fanout request, empty without remote fanout.
     value: ${{ steps.run-facade.outputs.fanout-request-id }}
+  remote-case-count:
+    description: How many of the cases that ran came from remote fanout.
+    value: ${{ steps.run-facade.outputs.remote-case-count }}
   report-status:
     description: posted, fallback, workflow, skipped, or failed.
     value: ${{ steps.submit.outputs.report-status }}

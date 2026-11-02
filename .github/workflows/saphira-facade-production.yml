@@ -37,6 +37,7 @@ jobs:
         run: curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 10 "$API_BASE/healthz"
 
       - name: Run facade with remote fanout
+        id: facade
         uses: ./.github/actions/saphira-run
         with:
           path-to-example-run: src/examples/motion_planning1/chem.py
@@ -44,6 +45,8 @@ jobs:
           fanout-source: remote
           api-url: ${{ env.API_BASE }}
           api-key: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
+          # The Saphira GitHub App must post the results; a workflow comment in its place fails the check.
+          report-mode: app
           include-alternative-actors: 'true'
           max-concurrency: '2'
           run-timeout-seconds: '300'
@@ -51,3 +54,26 @@ jobs:
           artifact-name: saphira-facade-production
           section-key: saphira-facade-production
           section-heading: Saphira Facade Production Results
+
+      - name: Verify remote fanout
+        if: ${{ !cancelled() }}
+        env:
+          REMOTE_STATUS: ${{ steps.facade.outputs.remote-status }}
+          OIDC_STATUS: ${{ steps.facade.outputs.oidc-status }}
+          FANOUT_REQUEST_ID: ${{ steps.facade.outputs.fanout-request-id }}
+          REMOTE_CASE_COUNT: ${{ steps.facade.outputs.remote-case-count }}
+        run: |
+          failed=0
+          if [ "$REMOTE_STATUS" != 'available' ]; then
+            echo "::error::Remote fanout status was '${REMOTE_STATUS}', not 'available'."; failed=1
+          fi
+          if [ "$OIDC_STATUS" != 'sent' ]; then
+            echo "::error::The fanout request's OIDC token status was '${OIDC_STATUS}', not 'sent'."; failed=1
+          fi
+          if [ -z "$FANOUT_REQUEST_ID" ]; then
+            echo "::error::The fanout response had no request ID."; failed=1
+          fi
+          if [ "${REMOTE_CASE_COUNT:-0}" -lt 1 ]; then
+            echo "::error::No remote fanout cases ran."; failed=1
+          fi
+          exit "$failed"
