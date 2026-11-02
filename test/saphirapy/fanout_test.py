@@ -11,10 +11,12 @@ from urllib.error import HTTPError, URLError
 
 from saphirapy.facade import build_fanout_context, parse_fanout_kinds, report_fanout_warnings
 from saphirapy.fanout import (
+    FANOUT_PATH,
     FANOUT_TOKEN_ENV,
     FANOUT_USER_AGENT,
     FanoutRemoteError,
     RemoteActorUnavailable,
+    api_endpoint,
     resolve_fanout,
 )
 from saphirapy.github_actions_contracts import (
@@ -121,6 +123,31 @@ class FanoutTest(unittest.TestCase):
             "production-ChemLab1", "premium-ChemLab1"
         ])
         self.assertEqual(resolution.cases[1]["source"], "remote")
+
+    def test_request_id_from_the_service_is_kept(self):
+        request_id = "0b6f3c2e-7f1a-4c55-9d0e-5a4b3c2d1e0f"
+        opener = RecordingOpener({"cases": [], "request_id": request_id})
+
+        self.assertEqual(self.resolve(opener).request_id, request_id)
+
+    def test_malformed_request_id_is_ignored(self):
+        for request_id in [None, 42, "", "not a uuid; rm -rf /", "x" * 65]:
+            with self.subTest(request_id=request_id):
+                opener = RecordingOpener({"cases": [], "request_id": request_id})
+
+                self.assertIsNone(self.resolve(opener).request_id)
+
+    def test_local_and_fallback_runs_have_no_request_id(self):
+        self.assertIsNone(resolve_fanout(self.local_cases).request_id)
+        self.assertIsNone(self.resolve(RecordingOpener(), "remote-with-fallback", token="").request_id)
+
+    def test_endpoints_are_derived_from_the_api_url(self):
+        for api_url in ["https://api-staging.wrenchrobotics.com", "https://api-staging.wrenchrobotics.com/"]:
+            with self.subTest(api_url=api_url):
+                self.assertEqual(
+                    api_endpoint(api_url, FANOUT_PATH),
+                    "https://api-staging.wrenchrobotics.com/v1/saphira/fanout",
+                )
 
     # --- Request shape ---------------------------------------------------------------------
 

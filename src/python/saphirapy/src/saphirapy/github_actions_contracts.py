@@ -345,6 +345,14 @@ def _normalize_result_file(file_path: Path) -> ResultRecord:
     }
 
 
+def collect_result_records(results_directories: str) -> list[ResultRecord]:
+    """Return one record per result JSON file under the newline-separated directories."""
+    return [
+        _normalize_result_file(file_path)
+        for file_path in _collect_result_files(_parse_directories(results_directories))
+    ]
+
+
 def _metric_names(rows: list[ResultRecord]) -> list[str]:
     names: list[str] = []
     for row in rows:
@@ -393,10 +401,10 @@ def _append_transposed_results_table(
 
 
 def build_summary(results_directories: str) -> str:
-    files = _collect_result_files(_parse_directories(results_directories))
+    rows = collect_result_records(results_directories)
 
     lines = ["### Combined Saphira Metrics"]
-    if not files:
+    if not rows:
         lines.append("- No run-evaluate result files were found")
         return "\n".join(lines)
 
@@ -404,17 +412,13 @@ def build_summary(results_directories: str) -> str:
     fail_count = 0
     parse_error_count = 0
 
-    rows: list[ResultRecord] = []
-    for file_path in files:
-        row = _normalize_result_file(file_path)
+    for row in rows:
         if row["exit_code"] == "parse_error":
             parse_error_count += 1
         if row["status"] == "passed":
             pass_count += 1
         else:
             fail_count += 1
-
-        rows.append(row)
 
     production_rows = [row for row in rows if row["comparison_type"] == "production"]
     actor_rows = [row for row in rows if row["comparison_type"] == "actor"]
