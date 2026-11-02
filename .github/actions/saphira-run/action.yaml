@@ -118,7 +118,11 @@ outputs:
   result-count:
     value: ${{ steps.run-facade.outputs.result-count }}
   failed-count:
+    description: Cases that failed the run. Cases that timed out are not counted.
     value: ${{ steps.run-facade.outputs.failed-count }}
+  timed-out-count:
+    description: Cases that timed out. They are reported but do not fail the run.
+    value: ${{ steps.run-facade.outputs.timed-out-count }}
   results-directory:
     value: ${{ steps.run-facade.outputs.results-directory }}
 
@@ -258,7 +262,11 @@ runs:
         set -euo pipefail
         outcome="${{ steps.run-facade.outcome }}"
         failed_count="${{ steps.run-facade.outputs.failed-count }}"
+        timed_out_count="${{ steps.run-facade.outputs.timed-out-count }}"
         result_count="${{ steps.run-facade.outputs.result-count }}"
+        if [ -n "$timed_out_count" ] && [ "$timed_out_count" != '0' ]; then
+          echo "::notice::${timed_out_count}/${result_count} Saphira fanout cases timed out. Timeouts are reported but do not fail this check."
+        fi
         if [ "$outcome" != 'success' ] && [ -z "$failed_count" ]; then
           echo "::error::Saphira facade run did not produce results (fanout crashed before reporting outputs)."
           exit 1

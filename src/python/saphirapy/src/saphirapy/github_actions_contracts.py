@@ -11,6 +11,27 @@ from saphirapy.restaging import BromRestagingManager
 from saphirapy.fanout import ActorResolver, RemoteActorUnavailable, normalize_fanout_cases
 
 
+# The exit code of a case that ran out of time, from `timeout` or the facade's own limit.
+TIMEOUT_EXIT_CODE = 124
+# Statuses of cases whose simulation ran without succeeding, for example because the algorithm was
+# too expensive for the task. They are reported but, unlike "failed", do not fail the run.
+SIMULATION_OUTCOME_STATUSES = frozenset({"timed-out"})
+
+
+def case_status(exit_code: Any, simulation_outcome: Any = None) -> str:
+    """Return a case's status: passed, one of SIMULATION_OUTCOME_STATUSES, or failed."""
+    if str(exit_code) == "0":
+        return "passed"
+    if isinstance(simulation_outcome, dict) and simulation_outcome.get("timed_out") is True:
+        return "timed-out"
+    return "failed"
+
+
+def fails_run(status: str) -> bool:
+    """Whether a case with this status fails the run."""
+    return status != "passed" and status not in SIMULATION_OUTCOME_STATUSES
+
+
 class ResultRecord(TypedDict):
     production: str
     production_class: str
@@ -259,7 +280,9 @@ def finalize_result_payload(
     payload.setdefault("restaged_file", restaged_file_default)
     payload["exit_code"] = int(exit_code)
     payload["duration_seconds"] = float(duration_seconds)
-    payload["timed_out"] = exit_code == 124
+    # What the simulation did, as opposed to whether Saphira could run it. For now only timeouts.
+    payload["simulation_outcome"] = {"timed_out": exit_code == TIMEOUT_EXIT_CODE}
+    payload["status"] = case_status(exit_code, payload["simulation_outcome"])
     if cast_production_name is not None:
         payload["cast_production_name"] = cast_production_name
     if comparison_metadata:
@@ -312,6 +335,7 @@ def _normalize_result_file(file_path: Path) -> ResultRecord:
     production = file_path.stem
     production_class = file_path.stem
     exit_code = "parse_error"
+    simulation_outcome: Any = None
     duration_seconds = "n/a"
     metrics: dict[str, str] = {}
     comparison_type = "unmapped"
@@ -325,6 +349,7 @@ def _normalize_result_file(file_path: Path) -> ResultRecord:
         production = str(payload.get("cast_production_name") or file_path.stem)
         production_class = str(payload.get("production_class") or production_class)
         exit_code = str(payload.get("exit_code", "unknown"))
+        simulation_outcome = payload.get("simulation_outcome")
         duration_seconds = str(payload.get("duration_seconds", "n/a"))
         comparison_type, comparison_metadata = _classify_comparison(payload, comparison_name)
         metrics_payload = payload.get("metrics")
@@ -338,7 +363,7 @@ def _normalize_result_file(file_path: Path) -> ResultRecord:
         "production_class": production_class,
         "exit_code": exit_code,
         "duration_seconds": duration_seconds,
-        "status": "passed" if exit_code == "0" else "failed",
+        "status": case_status(exit_code, simulation_outcome),
         "comparison_type": comparison_type,
         "comparison_metadata": comparison_metadata,
         "metrics": metrics,
@@ -409,6 +434,7 @@ def build_summary(results_directories: str) -> str:
         return "\n".join(lines)
 
     pass_count = 0
+    timed_out_count = 0
     fail_count = 0
     parse_error_count = 0
 
@@ -417,6 +443,8 @@ def build_summary(results_directories: str) -> str:
             parse_error_count += 1
         if row["status"] == "passed":
             pass_count += 1
+        elif row["status"] == "timed-out":
+            timed_out_count += 1
         else:
             fail_count += 1
 
@@ -528,7 +556,8 @@ def build_summary(results_directories: str) -> str:
     )
 
     lines.append("")
-    lines.append(f"Totals: {pass_count} passed, {fail_count} failed")
+    timed_out = f"{timed_out_count} timed out, " if timed_out_count else ""
+    lines.append(f"Totals: {pass_count} passed, {timed_out}{fail_count} failed")
     if parse_error_count:
         lines.append(f"Warning: {parse_error_count} result file(s) could not be parsed")
 

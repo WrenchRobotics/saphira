@@ -7,6 +7,8 @@ from saphirapy.detect_production_map import detect_production_mapping
 from saphirapy.github_actions_contracts import (
     build_cast_production_outputs,
     build_summary,
+    case_status,
+    fails_run,
     finalize_result_payload,
     find_alternative_actors_for_production,
     parse_detection_outputs,
@@ -182,8 +184,46 @@ class TestGitHubActionContracts(unittest.TestCase):
                 "productions/restaged/chem_lab.py",
             )
 
-            self.assertTrue(payload["timed_out"])
-            self.assertTrue(json.loads(result_path.read_text())["timed_out"])
+            self.assertEqual(payload["simulation_outcome"], {"timed_out": True})
+            self.assertEqual(payload["status"], "timed-out")
+            written = json.loads(result_path.read_text())
+            self.assertEqual(written["simulation_outcome"], {"timed_out": True})
+            self.assertEqual(written["status"], "timed-out")
+
+    def test_other_exit_codes_are_not_simulation_outcomes(self):
+        with TemporaryDirectory() as tmpdir:
+            for exit_code, status in ((0, "passed"), (1, "failed"), (137, "failed")):
+                with self.subTest(exit_code=exit_code):
+                    payload = finalize_result_payload(
+                        Path(tmpdir) / f"{exit_code}.json", "ChemLab1", exit_code, 1.0, ""
+                    )
+                    self.assertEqual(payload["simulation_outcome"], {"timed_out": False})
+                    self.assertEqual(payload["status"], status)
+
+    def test_case_status_and_whether_it_fails_the_run(self):
+        cases = [
+            ("0", None, "passed", False),
+            ("0", {"timed_out": True}, "passed", False),
+            ("124", {"timed_out": True}, "timed-out", False),
+            ("124", None, "failed", True),
+            ("1", {"timed_out": False}, "failed", True),
+            ("parse_error", None, "failed", True),
+        ]
+        for exit_code, outcome, status, fails in cases:
+            with self.subTest(exit_code=exit_code, outcome=outcome):
+                self.assertEqual(case_status(exit_code, outcome), status)
+                self.assertEqual(fails_run(status), fails)
+
+    def test_summary_counts_timed_out_cases_apart_from_failures(self):
+        with TemporaryDirectory() as tmpdir:
+            results_directory = Path(tmpdir)
+            for name, exit_code in (("passed", 0), ("slow", 124), ("broken", 1)):
+                finalize_result_payload(results_directory / f"{name}.json", name, exit_code, 1.0, "")
+
+            summary = build_summary(str(results_directory))
+
+            self.assertIn("| slow | 124 | 1.0 | timed-out |", summary)
+            self.assertIn("Totals: 1 passed, 1 timed out, 1 failed", summary)
 
     def test_summary_includes_additional_metrics_when_present(self):
         with TemporaryDirectory() as tmpdir:
