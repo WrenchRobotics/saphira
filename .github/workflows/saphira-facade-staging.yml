@@ -1,0 +1,73 @@
+name: Saphira Facade Staging Run
+
+# Integration check against the staging backend. Advisory: a failure can come from saphira,
+# the backend, or staging being down, so this should not be a required check.
+
+on: [pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+  # Sends a GitHub Actions OIDC token with the fanout request and the report, as keys tied to
+  # this repository and the reports endpoint require.
+  id-token: write
+  # Only for the workflow's own PR comment, the fallback when the app cannot post.
+  pull-requests: write
+
+env:
+  PYTHON_VERSION: '3.14'
+  API_BASE: https://api-staging.wrenchrobotics.com
+
+jobs:
+  run-facade:
+    # Fork PRs do not receive secrets, so only run PRs opened from this repository.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    name: Run Saphira facade with staging fanout
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check staging backend health
+        run: curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 10 "$API_BASE/healthz"
+
+      - name: Run facade with remote fanout
+        id: facade
+        uses: ./.github/actions/saphira-run
+        with:
+          path-to-example-run: src/examples/motion_planning1/chem.py
+          # No fallback: an unreachable staging backend should fail this check, not pass as a local run.
+          fanout-source: remote
+          api-url: ${{ env.API_BASE }}
+          api-key: ${{ secrets.WRENCH_SAPHIRA_STAGING_API_KEY }}
+          # Wrench Saphira [Staging] must post the results; a workflow comment in its place fails the check.
+          report-mode: app
+          include-alternative-actors: 'true'
+          max-concurrency: '2'
+          run-timeout-seconds: '300'
+          python-version: ${{ env.PYTHON_VERSION }}
+          artifact-name: saphira-facade-staging
+          section-key: saphira-facade-staging
+          section-heading: Saphira Facade Staging Results
+
+      - name: Verify remote fanout
+        if: ${{ !cancelled() }}
+        env:
+          REMOTE_STATUS: ${{ steps.facade.outputs.remote-status }}
+          OIDC_STATUS: ${{ steps.facade.outputs.oidc-status }}
+          FANOUT_REQUEST_ID: ${{ steps.facade.outputs.fanout-request-id }}
+          REMOTE_CASE_COUNT: ${{ steps.facade.outputs.remote-case-count }}
+        run: |
+          failed=0
+          if [ "$REMOTE_STATUS" != 'available' ]; then
+            echo "::error::Remote fanout status was '${REMOTE_STATUS}', not 'available'."; failed=1
+          fi
+          if [ "$OIDC_STATUS" != 'sent' ]; then
+            echo "::error::The fanout request's OIDC token status was '${OIDC_STATUS}', not 'sent'."; failed=1
+          fi
+          if [ -z "$FANOUT_REQUEST_ID" ]; then
+            echo "::error::The fanout response had no request ID."; failed=1
+          fi
+          if [ "${REMOTE_CASE_COUNT:-0}" -lt 1 ]; then
+            echo "::error::No remote fanout cases ran."; failed=1
+          fi
+          exit "$failed"

@@ -38,6 +38,9 @@ jobs:
           # Wrench Saphira [Staging] is installed on this repository, so it posts these results.
           api-url: https://api-staging.wrenchrobotics.com
           api-key: ${{ secrets.WRENCH_SAPHIRA_STAGING_API_KEY }}
+          # The app must post the results, except on fork PRs, which get no secrets or OIDC token
+          # and fall back to the workflow's own comment.
+          report-mode: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'auto' || 'app' }}
           include-alternative-actors: 'true'
           max-concurrency: '2'
           run-timeout-seconds: '300'
