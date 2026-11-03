@@ -60,6 +60,18 @@ The facade POSTs the detected parent and production, the local case IDs, and the
 
 **Remote cases are data, never code.** A remote actor case only names a registered actor (`{"cast_call_index": 0, "actor": "bidirectional_rrt"}`), and Saphira expands it from the actor registry of the installed `saphira` version. A remote case that carries `import_statements`, `instantiation_code`, `variable_name`, or `method_to_call` fails the run under every fanout source. A remote actor this version does not know about, or one that does not fit the production's cast call, is skipped with a warning in the job summary.
 
+### Case outcomes and timeouts
+
+Each case ends with one of three statuses:
+
+- `passed`: the case exited with code 0.
+- `timed-out`: the case ran past `run-timeout-seconds` (900 by default) and exited with code 124. This usually means the algorithm is too expensive for the task, not that Saphira broke, so it is a simulation outcome rather than a failure: it is reported but does not fail the run.
+- `failed`: any other exit code, or a worker that crashed.
+
+Every result JSON records the case's `status`, its `exit_code`, and a `simulation_outcome` object describing what the simulation did, as opposed to whether Saphira could run it. For now it only says whether the case timed out (`{"timed_out": true}`); it replaces the top-level `timed_out` field of earlier versions.
+
+The `failed-count` output counts only `failed` cases, and the action fails when it is not zero. The `timed-out-count` output counts `timed-out` cases, which also appear in the job summary table and totals (`Totals: 3 passed, 1 timed out, 0 failed`) and as a notice on the run.
+
 ### Results from the Saphira GitHub App
 
 With an API key, `saphira-run` submits its results to the Wrench API (`POST /v1/saphira/reports`), and the Saphira GitHub App posts them: a GitHub Check on the commit for every run, and a PR comment for pull request runs. Rerunning a job updates both in place. For this to work:

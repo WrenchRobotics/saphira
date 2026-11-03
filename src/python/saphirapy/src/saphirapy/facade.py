@@ -24,6 +24,7 @@ from saphirapy.github_oidc import OIDC_MODES
 from saphirapy.github_actions_contracts import (
     build_cast_production_outputs,
     build_remote_actor_resolver,
+    fails_run,
     finalize_result_payload,
 )
 
@@ -101,7 +102,12 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
     payload["fanout_source"] = case.get("source", "local")
     payload["fanout_request_id"] = request_id
     result_path.write_text(json.dumps(payload, indent=2))
-    return {"case-id": case_id, "result-json-path": str(result_path), "exit-code": str(exit_code)}
+    return {
+        "case-id": case_id,
+        "result-json-path": str(result_path),
+        "exit-code": str(exit_code),
+        "status": payload["status"],
+    }
 
 
 def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exception,
@@ -121,7 +127,12 @@ def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exce
     payload["fanout_request_id"] = request_id
     payload["error"] = f"Worker failed: {error}"
     result_path.write_text(json.dumps(payload, indent=2))
-    return {"case-id": case["case-id"], "result-json-path": str(result_path), "exit-code": "1"}
+    return {
+        "case-id": case["case-id"],
+        "result-json-path": str(result_path),
+        "exit-code": "1",
+        "status": payload["status"],
+    }
 
 
 class ProgressReporter:
@@ -141,11 +152,12 @@ class ProgressReporter:
 
     def record(self, result: dict[str, str]) -> None:
         self.completed += 1
-        passed = result["exit-code"] == "0"
-        status = "passed" if passed else f"failed (exit code {result['exit-code']})"
+        status = result["status"]
+        if status != "passed":
+            status = f"{status} (exit code {result['exit-code']})"
         if self.bar is not None:
             self.bar.update(1)
-            self.bar.set_postfix(case=result["case-id"], status="passed" if passed else "failed")
+            self.bar.set_postfix(case=result["case-id"], status=result["status"])
         elif self.mode == "lines":
             print(
                 f"Saphira facade: [{self.completed}/{self.total}] "
@@ -344,7 +356,9 @@ def main() -> int:
         "remote-case-count": str(resolution.remote_case_count),
         "results-directory": str(args.result_directory),
         "result-count": str(len(results)),
-        "failed-count": str(sum(result["exit-code"] != "0" for result in results)),
+        # Cases that timed out are simulation outcomes: reported, but not failures of the run.
+        "failed-count": str(sum(fails_run(result["status"]) for result in results)),
+        "timed-out-count": str(sum(result["status"] == "timed-out" for result in results)),
     }
     for key, value in outputs.items():
         write_output(args.github_output or os.environ.get("GITHUB_OUTPUT"), key, value)
