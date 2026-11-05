@@ -143,7 +143,8 @@ runs:
         pip install brom_drake
         # Install from this action's own checkout so the action works from any repository.
         pip install "$GITHUB_ACTION_PATH/../../../src/python/saphirapy"
-        echo "collate-path=$GITHUB_ACTION_PATH/../saphira-collate-comment" >> "$GITHUB_OUTPUT"
+        # github-script steps see another action's path, so they get this one's from here.
+        echo "action-path=$GITHUB_ACTION_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Run Saphira facade
       id: run-facade
@@ -177,18 +178,15 @@ runs:
           ${{ steps.names.outputs.results-directory }}
           ${{ steps.names.outputs.restaged-directory }}
 
-    # A local `uses: ./.github/actions/...` would resolve against the caller's repository, so the
-    # collate scripts are called from this action's checkout instead.
     - name: Collate facade results
       id: collate
       if: always()
       shell: bash
       env:
         RESULTS_DIRECTORIES: ${{ steps.names.outputs.results-directory }}
-        COLLATE_PATH: ${{ steps.install.outputs.collate-path }}
       run: |
         set -euo pipefail
-        summary="$(python "$COLLATE_PATH/collate_results.py")"
+        summary="$(python "$GITHUB_ACTION_PATH/collate_results.py")"
 
         {
           echo "summary<<EOF"
@@ -244,7 +242,7 @@ runs:
         SECTION_HEADING: ${{ steps.names.outputs.section-heading }}
         RESULTS_DIRECTORIES: ${{ steps.names.outputs.results-directory }}
         COMBINED_SUMMARY: ${{ steps.collate.outputs.summary }}
-        UPSERT_SCRIPT: ${{ steps.install.outputs.collate-path }}/upsert_comment.js
+        UPSERT_SCRIPT: ${{ steps.install.outputs.action-path }}/upsert_comment.js
       with:
         github-token: ${{ inputs.github-token }}
         script: |

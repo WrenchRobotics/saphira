@@ -11,37 +11,12 @@ from saphirapy.github_actions_contracts import (
     fails_run,
     finalize_result_payload,
     find_alternative_actors_for_production,
-    parse_detection_outputs,
 )
 
 
 class TestGitHubActionContracts(unittest.TestCase):
     def setUp(self):
         self.data_directory = Path(__file__).resolve().parents[1] / "data"
-
-    def test_parse_detection_outputs_matches_matrix_contract(self):
-        target_file = self.data_directory / "motion_planning" / "chem_lab_demo.py"
-
-        detection_payload = detect_production_mapping(target_file)
-        outputs = parse_detection_outputs(json.dumps(detection_payload))
-
-        related_productions = json.loads(outputs["related-productions-json"])
-
-        self.assertEqual(outputs["detected-parent"], detection_payload["detected_parent_class"])
-        self.assertEqual(related_productions, detection_payload["related_productions"])
-        self.assertGreater(len(related_productions), 0)
-        self.assertTrue(all(isinstance(production, str) for production in related_productions))
-
-    def test_parse_detection_outputs_defaults_to_unmapped(self):
-        outputs = parse_detection_outputs(
-            json.dumps({
-                "detected_parent_class": None,
-                "related_productions": [],
-            })
-        )
-
-        self.assertEqual(outputs["detected-parent"], "UNMAPPED")
-        self.assertEqual(outputs["related-productions-json"], "[]")
 
     def test_finds_registered_alternative_actors_for_production(self):
         target_file = self.data_directory / "motion_planning" / "chem_lab_demo.py"

@@ -93,42 +93,17 @@ The `report-status` output is `posted`, `fallback`, `skipped`, or `failed`, and 
 
 For external consumers, pin the action to a release tag and commit SHA rather than `main` once releases are available.
 
-## Collate Comment Sections for Multi-Step Workflows
+## Deprecated: `saphira-collate-comment`
 
-When a workflow calls `saphira-collate-comment` more than once, each invocation should use a unique section key so results do not overwrite each other.
-
-If you are using this action from another repository, reference it with `owner/repo/path@ref` format:
-- `uses: WrenchRobotics/saphira/.github/actions/saphira-collate-comment@main`
-
-For production workflows, pin to a tag or commit SHA instead of `main`.
-
-How it works:
-- `comment-marker` still identifies one shared PR comment.
-- `section-key` identifies one upsert target within that comment.
-- `section-heading` controls the visible heading for that section.
-
-Recommended pattern:
-- Use a stable `section-key` per collate step (for example, `matrix-results`, `fallback-results`, `integration-suite`).
-- Keep `section-heading` human-readable for reviewers.
-
-Example:
+`saphira-run` reports its own results, so `saphira-collate-comment` is deprecated and will be removed when the workflow's own PR comment is (see [#10](https://github.com/WrenchRobotics/saphira/issues/10)). Until then it still collates result JSON files into a section of the shared PR comment, and warns on every run:
 
 ```yaml
-- name: Collate matrix runs
-  if: needs.matrix.result == 'success'
-  uses: WrenchRobotics/saphira/.github/actions/saphira-collate-comment@main
+- uses: WrenchRobotics/saphira/.github/actions/saphira-collate-comment@main
   with:
     results-directories: productions/matrix-results
     section-key: matrix-results
     section-heading: Matrix Production Results
     github-token: ${{ secrets.GITHUB_TOKEN }}
-
-- name: Collate fallback runs
-  if: needs.fallback.result == 'success'
-  uses: WrenchRobotics/saphira/.github/actions/saphira-collate-comment@main
-  with:
-    results-directories: productions/fallback-results
-    section-key: fallback-results
-    section-heading: Fallback Production Results
-    github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+Give each invocation in a workflow its own `section-key`, so results do not overwrite each other.
