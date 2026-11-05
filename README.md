@@ -85,10 +85,9 @@ The `report-mode` input decides what happens:
 
 - `auto` (default) submits the report. When the app cannot post, the workflow posts its own PR comment instead, and the job summary says why: no API key, no OIDC token (pull requests from forks get neither), the key is refused, the app is not installed (with the install link), the key's account has not connected the installation (with the dashboard link), or the API is unreachable.
 - `app` submits the report and fails the job when the app cannot post.
-- `workflow` only posts the workflow's own PR comment, using `github-token`.
 - `none` posts nothing. The results are still in the job summary and the uploaded artifacts.
 
-The `report-status` output is `posted`, `fallback`, `workflow`, `skipped`, or `failed`, and `report-url` links the app's PR comment, or for other events its Check. The job still passes or fails on the results themselves, whatever the report mode.
+The `report-status` output is `posted`, `fallback`, `skipped`, or `failed`, and `report-url` links the app's PR comment, or for other events its Check. The job still passes or fails on the results themselves, whatever the report mode.
 
 `api-url` chooses the Wrench environment and so which app posts: `https://api.wrenchrobotics.com` posts as Wrench Saphira, and `https://api-staging.wrenchrobotics.com` as Wrench Saphira [Staging]. Each needs a key from its own environment.
 

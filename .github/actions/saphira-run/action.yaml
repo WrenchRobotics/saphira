@@ -23,10 +23,9 @@ inputs:
     required: false
   report-mode:
     description: >-
-      auto, app, workflow, or none. auto submits the results to the Wrench API, which posts them
-      as the Saphira GitHub App, and falls back to the workflow's own PR comment when it cannot.
-      app fails instead of falling back, workflow only posts the workflow's comment, and none
-      only writes the job summary.
+      auto, app, or none. auto submits the results to the Wrench API, which posts them as the
+      Saphira GitHub App, and falls back to the workflow's own PR comment when it cannot. app
+      fails instead of falling back, and none only writes the job summary.
     required: false
     default: auto
   kinds:
@@ -74,7 +73,7 @@ outputs:
     description: How many of the cases that ran came from remote fanout.
     value: ${{ steps.run-facade.outputs.remote-case-count }}
   report-status:
-    description: posted, fallback, workflow, skipped, or failed.
+    description: posted, fallback, skipped, or failed.
     value: ${{ steps.submit.outputs.report-status }}
   report-url:
     description: The PR comment, or for other events the Check, posted by the Saphira GitHub App.
