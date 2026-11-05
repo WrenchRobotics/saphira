@@ -53,12 +53,6 @@ inputs:
   python-version:
     required: false
     default: '3.14'
-  results-directory:
-    required: false
-    default: productions/facade-results
-  restaged-output-directory:
-    required: false
-    default: productions/facade-restaged
   name:
     description: >-
       Names these results, such as Motion Planning. Each saphira-run in a workflow run needs its
@@ -102,7 +96,11 @@ outputs:
     description: Cases that timed out. They are reported but do not fail the run.
     value: ${{ steps.run-facade.outputs.timed-out-count }}
   results-directory:
-    value: ${{ steps.run-facade.outputs.results-directory }}
+    description: Where the result JSON files are, for later steps that read them.
+    value: ${{ steps.names.outputs.results-directory }}
+  restaged-directory:
+    description: Where the restaged production files are.
+    value: ${{ steps.names.outputs.restaged-directory }}
 
 runs:
   using: composite
@@ -131,10 +129,14 @@ runs:
           heading="Saphira Results ($NAME)"
           artifact="saphira-results-$key"
         fi
+        # Outside the checkout, so the files never mix with the caller's own.
+        directory="$RUNNER_TEMP/saphira/$key"
         {
           echo "section-key=$key"
           echo "section-heading=$heading"
           echo "artifact-name=$artifact"
+          echo "results-directory=$directory/results"
+          echo "restaged-directory=$directory/restaged"
         } >> "$GITHUB_OUTPUT"
 
     - name: Set up Python
@@ -168,8 +170,8 @@ runs:
           --fanout-timeout-seconds "${{ inputs.fanout-timeout-seconds }}"
           --run-timeout-seconds "${{ inputs.run-timeout-seconds }}"
           --progress "${{ inputs.progress }}"
-          --result-directory "${{ inputs.results-directory }}"
-          --restaged-output-directory "${{ inputs.restaged-output-directory }}"
+          --result-directory "${{ steps.names.outputs.results-directory }}"
+          --restaged-output-directory "${{ steps.names.outputs.restaged-directory }}"
         )
         # The key reaches the facade through WRENCH_API_KEY only, never the command line.
         if [ -n "$KINDS" ]; then args+=(--kinds "$KINDS"); fi
@@ -183,8 +185,8 @@ runs:
       with:
         name: ${{ steps.names.outputs.artifact-name }}
         path: |
-          ${{ inputs.results-directory }}
-          ${{ inputs.restaged-output-directory }}
+          ${{ steps.names.outputs.results-directory }}
+          ${{ steps.names.outputs.restaged-directory }}
 
     # A local `uses: ./.github/actions/...` would resolve against the caller's repository, so the
     # collate scripts are called from this action's checkout instead.
@@ -193,7 +195,7 @@ runs:
       if: always()
       shell: bash
       env:
-        RESULTS_DIRECTORIES: ${{ inputs.results-directory }}
+        RESULTS_DIRECTORIES: ${{ steps.names.outputs.results-directory }}
         COLLATE_PATH: ${{ steps.install.outputs.collate-path }}
       run: |
         set -euo pipefail
@@ -214,7 +216,7 @@ runs:
       shell: bash
       env:
         WRENCH_API_KEY: ${{ inputs.api-key }}
-        RESULTS_DIRECTORY: ${{ inputs.results-directory }}
+        RESULTS_DIRECTORY: ${{ steps.names.outputs.results-directory }}
         REPORT_MODE: ${{ inputs.report-mode }}
         API_URL: ${{ inputs.api-url }}
         SECTION_KEY: ${{ steps.names.outputs.section-key }}
@@ -251,7 +253,7 @@ runs:
         DETECTED_PARENT: ${{ steps.run-facade.outputs.detected-parent }}
         SECTION_KEY: ${{ steps.names.outputs.section-key }}
         SECTION_HEADING: ${{ steps.names.outputs.section-heading }}
-        RESULTS_DIRECTORIES: ${{ inputs.results-directory }}
+        RESULTS_DIRECTORIES: ${{ steps.names.outputs.results-directory }}
         COMBINED_SUMMARY: ${{ steps.collate.outputs.summary }}
         UPSERT_SCRIPT: ${{ steps.install.outputs.collate-path }}/upsert_comment.js
       with:
