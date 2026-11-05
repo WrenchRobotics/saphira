@@ -36,20 +36,12 @@ inputs:
       key permits from the Wrench API.
     required: false
     default: ''
-  fanout-timeout-seconds:
-    description: Timeout for the remote fanout request.
-    required: false
-    default: '10'
   max-concurrency:
     required: false
     default: ''
   run-timeout-seconds:
     required: false
     default: '900'
-  progress:
-    description: 'Progress mode: auto, bar, lines, or none.'
-    required: false
-    default: auto
   python-version:
     required: false
     default: '3.14'
@@ -167,9 +159,7 @@ runs:
           --path-to-example-run "${{ inputs.path-to-example-run }}"
           --api-url "${{ inputs.api-url }}"
           --fanout-source "${{ inputs.fanout-source }}"
-          --fanout-timeout-seconds "${{ inputs.fanout-timeout-seconds }}"
           --run-timeout-seconds "${{ inputs.run-timeout-seconds }}"
-          --progress "${{ inputs.progress }}"
           --result-directory "${{ steps.names.outputs.results-directory }}"
           --restaged-output-directory "${{ steps.names.outputs.restaged-directory }}"
         )

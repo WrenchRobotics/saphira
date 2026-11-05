@@ -31,6 +31,11 @@ from saphirapy.github_actions_contracts import (
 KINDS = ("productions", "casts")
 # The kinds of local cases when none are chosen. Remote fanout then gets every kind the key permits.
 DEFAULT_LOCAL_KINDS = ("productions",)
+# Debugging knobs. They set the defaults of --fanout-timeout-seconds and --progress, so they reach
+# the facade from a workflow's env without being action inputs.
+FANOUT_TIMEOUT_ENV = "SAPHIRA_FANOUT_TIMEOUT_SECONDS"
+PROGRESS_ENV = "SAPHIRA_PROGRESS"
+PROGRESS_MODES = ("auto", "bar", "lines", "none")
 # The fanout service bounds local_cases; it only reads their identity, so send no more than that.
 MAX_CONTEXT_LOCAL_CASES = 500
 _GITHUB_CONTEXT_ENV = {
@@ -140,7 +145,7 @@ def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exce
 
 class ProgressReporter:
     def __init__(self, total: int, mode: str) -> None:
-        if mode not in {"auto", "bar", "lines", "none"}:
+        if mode not in PROGRESS_MODES:
             raise ValueError(f"Unknown progress mode: {mode}")
         if mode == "auto":
             mode = "lines" if os.environ.get("GITHUB_ACTIONS") or not sys.stderr.isatty() else "bar"
@@ -292,14 +297,21 @@ def main() -> int:
         f"runs {', '.join(DEFAULT_LOCAL_KINDS)} locally and requests every kind the key permits "
         "from the Wrench API.",
     )
-    parser.add_argument("--fanout-timeout-seconds", type=float, default=10.0)
+    # argparse converts string defaults with type, so a bad value is refused like a bad flag.
+    parser.add_argument(
+        "--fanout-timeout-seconds", type=float, default=os.environ.get(FANOUT_TIMEOUT_ENV, "10")
+    )
     parser.add_argument("--max-concurrency", type=int)
     parser.add_argument("--run-timeout-seconds", type=int, default=900)
-    parser.add_argument("--progress", choices=("auto", "bar", "lines", "none"), default="auto")
+    parser.add_argument(
+        "--progress", choices=PROGRESS_MODES, default=os.environ.get(PROGRESS_ENV) or "auto"
+    )
     parser.add_argument("--restaged-output-directory", type=Path, default=Path("productions/facade-restaged"))
     parser.add_argument("--result-directory", type=Path, default=Path("productions/facade-results"))
     parser.add_argument("--github-output")
     args = parser.parse_args()
+    if args.progress not in PROGRESS_MODES:
+        parser.error(f"{PROGRESS_ENV} must be one of {', '.join(PROGRESS_MODES)}")
 
     try:
         kinds = parse_kinds(args.kinds)

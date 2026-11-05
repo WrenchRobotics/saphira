@@ -43,6 +43,8 @@ When a workflow runs `saphira-run` more than once, for example in a matrix, give
 
 The action writes its files under `$RUNNER_TEMP`, never into your checkout, and uploads them as that artifact. Later steps can read them from the `results-directory` (result JSON files) and `restaged-directory` (restaged productions) outputs.
 
+Two environment variables help when debugging, and can be set in the workflow's or step's `env`: `SAPHIRA_PROGRESS` (`auto` by default, or `bar`, `lines`, or `none`) and `SAPHIRA_FANOUT_TIMEOUT_SECONDS` (the timeout of the request to the Wrench API, `10` by default).
+
 `local` never contacts the service. `remote` fails if the service cannot provide cases. `remote-with-fallback` uses local cases when the service is unreachable or returns a retryable server error, and when no token is available (as on pull requests from forks, where secrets are withheld). It still fails for invalid responses and authorization errors, including a `kinds` entry the key does not permit; the error names the missing scope. Remote cases are deduplicated against local cases by `case-id` and retain their source in result JSON.
 
 ### Keys tied to a repository
