@@ -33,28 +33,29 @@ jobs:
 Without a `WRENCH_SAPHIRA_API_KEY` secret, the run uses local cases only and the workflow posts its own PR comment. Add the secret to include corner cases from the Wrench API (`api-url`, `https://api.wrenchrobotics.com` by default) and to have the Saphira GitHub App post the results; see [Results from the Saphira GitHub App](#results-from-the-saphira-github-app). Optional inputs include:
 
 ```yaml
-          fanout-source: local              # never contact the service
-          fanout-kinds: productions,casts   # defaults to everything the key allows
-          include-alternative-actors: 'true'
+          kinds: productions,casts   # also try alternative actors
+          fanout-source: local       # never contact the service
 ```
 
-`local` never contacts the service. `remote` fails if the service cannot provide cases. `remote-with-fallback` uses local cases when the service is unreachable or returns a retryable server error, and when no token is available (as on pull requests from forks, where secrets are withheld). It still fails for invalid responses and authorization errors, including a `fanout-kinds` entry the key does not permit; the error names the missing scope. Remote cases are deduplicated against local cases by `case-id` and retain their source in result JSON.
+Every run includes the baseline: your production as written. `kinds` adds more cases: `productions` runs the related productions with your current cast, and `casts` runs your production with each alternative actor. It applies to local cases and to the cases requested from the Wrench API. When it is empty, local cases include `productions`, and the API returns every kind your key allows. Requesting a kind your key does not allow fails the run with the missing scope.
+
+`fanout-source` is `remote-with-fallback` by default. `local` never contacts the service. `remote` fails if the service cannot provide cases. `remote-with-fallback` uses local cases when the service is unreachable or returns a retryable server error, and when no token is available (as on pull requests from forks, where secrets are withheld). It still fails for invalid responses and authorization errors, including a `kinds` entry the key does not permit; the error names the missing scope. Remote cases are deduplicated against local cases by `case-id` and retain their source in result JSON.
+
+When a workflow runs `saphira-run` more than once, for example in a matrix, give each run its own `name`, such as `name: ${{ matrix.name }}`. It names the results' Check, PR comment section, and artifact. With `name: Motion Planning`, the heading is `Saphira Results (Motion Planning)` and the artifact is `saphira-results-motion-planning`.
+
+The action writes its files under `$RUNNER_TEMP`, never into your checkout, and uploads them as that artifact. Later steps can read them from the `results-directory` (result JSON files) and `restaged-directory` (restaged productions) outputs.
+
+Two environment variables help when debugging, and can be set in the workflow's or step's `env`: `SAPHIRA_PROGRESS` (`auto` by default, or `bar`, `lines`, or `none`) and `SAPHIRA_FANOUT_TIMEOUT_SECONDS` (the timeout of the request to the Wrench API, `10` by default).
 
 ### Keys tied to a repository
 
 A Wrench API key can be tied to one GitHub repository, so that a leaked key is useless anywhere else. The Wrench API accepts such a key only together with a GitHub Actions OIDC token proving that the request comes from a workflow in that repository. `saphira-run` requests one and sends it in the `Wrench-GitHub-OIDC` header whenever the workflow grants `id-token: write`, as in the example above. Keys without a repository work with or without it, so keep the permission in every workflow: switching to a repository key then only means replacing the secret.
 
-The token's audience is the scheme and host of `api-url` (`https://api.wrenchrobotics.com` by default), so a token requested for one Wrench environment does not work in another. Pull requests from forks get neither secrets nor OIDC tokens, so they use local cases. The `fanout-oidc` input controls the token:
+The token's audience is the scheme and host of `api-url` (`https://api.wrenchrobotics.com` by default), so a token requested for one Wrench environment does not work in another. Pull requests from forks get neither secrets nor OIDC tokens, so they use local cases. If GitHub fails to provide a token, the run continues without it and the job summary says why; a key tied to a repository is then refused.
 
-- `auto` (default) sends a token when the workflow grants `id-token: write`. If GitHub fails to provide one, the run continues without it and the job summary says why.
-- `always` fails the run when no token can be obtained. Use it with a key tied to a repository to catch a missing permission early.
-- `never` sends no token.
+The `oidc-status` output reports what happened: `sent`, `unavailable` (no permission), `failed`, or `not-requested` (no remote request was made). Neither the token nor the API key is ever printed.
 
-The `oidc-status` output reports what happened: `sent`, `unavailable` (no permission), `failed`, `disabled`, or `not-requested` (no remote request was made). Neither the token nor the API key is ever printed.
-
-The action passes the API key to the facade through the `FANOUT_TOKEN` environment variable, and to `saphira-submit` through `WRENCH_API_KEY`, never on the command line. When running `saphira-run-facade` yourself, prefer `FANOUT_TOKEN` over `--fanout-token` for the same reason.
-
-`fanout-token` and `fanout-endpoint` are deprecated: `fanout-token` is an alias of `api-key`, and `fanout-endpoint` overrides the fanout endpoint derived from `api-url`.
+The action passes the API key to `saphira-run-facade` and `saphira-submit` through the `WRENCH_API_KEY` environment variable, never on the command line. Both CLIs read it only from there.
 
 The facade POSTs the detected parent and production, the local case IDs, and the `GITHUB_REPOSITORY`, `GITHUB_SHA`, `GITHUB_RUN_ID`, and `GITHUB_RUN_ATTEMPT` values so the service can choose relevant cases.
 
@@ -84,51 +85,25 @@ The `report-mode` input decides what happens:
 
 - `auto` (default) submits the report. When the app cannot post, the workflow posts its own PR comment instead, and the job summary says why: no API key, no OIDC token (pull requests from forks get neither), the key is refused, the app is not installed (with the install link), the key's account has not connected the installation (with the dashboard link), or the API is unreachable.
 - `app` submits the report and fails the job when the app cannot post.
-- `workflow` only posts the workflow's own PR comment, using `github-token`.
 - `none` posts nothing. The results are still in the job summary and the uploaded artifacts.
 
-The `report-status` output is `posted`, `fallback`, `workflow`, `skipped`, or `failed`, and `report-url` links the app's PR comment, or for other events its Check. The job still passes or fails on the results themselves, whatever the report mode.
+The `report-status` output is `posted`, `fallback`, `skipped`, or `failed`, and `report-url` links the app's PR comment, or for other events its Check. The job still passes or fails on the results themselves, whatever the report mode.
 
 `api-url` chooses the Wrench environment and so which app posts: `https://api.wrenchrobotics.com` posts as Wrench Saphira, and `https://api-staging.wrenchrobotics.com` as Wrench Saphira [Staging]. Each needs a key from its own environment.
 
 For external consumers, pin the action to a release tag and commit SHA rather than `main` once releases are available.
 
-## Collate Comment Sections for Multi-Step Workflows
+## Deprecated: `saphira-collate-comment`
 
-When a workflow calls `saphira-collate-comment` more than once, each invocation should use a unique section key so results do not overwrite each other.
-
-If you are using this action from another repository, reference it with `owner/repo/path@ref` format:
-- `uses: WrenchRobotics/saphira/.github/actions/saphira-collate-comment@main`
-
-For production workflows, pin to a tag or commit SHA instead of `main`.
-
-How it works:
-- `comment-marker` still identifies one shared PR comment.
-- `section-key` identifies one upsert target within that comment.
-- `section-heading` controls the visible heading for that section.
-
-Recommended pattern:
-- Use a stable `section-key` per collate step (for example, `matrix-results`, `fallback-results`, `integration-suite`).
-- Keep `section-heading` human-readable for reviewers.
-
-Example:
+`saphira-run` reports its own results, so `saphira-collate-comment` is deprecated and will be removed when the workflow's own PR comment is (see [#10](https://github.com/WrenchRobotics/saphira/issues/10)). Until then it still collates result JSON files into a section of the shared PR comment, and warns on every run:
 
 ```yaml
-- name: Collate matrix runs
-  if: needs.matrix.result == 'success'
-  uses: WrenchRobotics/saphira/.github/actions/saphira-collate-comment@main
+- uses: WrenchRobotics/saphira/.github/actions/saphira-collate-comment@main
   with:
     results-directories: productions/matrix-results
     section-key: matrix-results
     section-heading: Matrix Production Results
     github-token: ${{ secrets.GITHUB_TOKEN }}
-
-- name: Collate fallback runs
-  if: needs.fallback.result == 'success'
-  uses: WrenchRobotics/saphira/.github/actions/saphira-collate-comment@main
-  with:
-    results-directories: productions/fallback-results
-    section-key: fallback-results
-    section-heading: Fallback Production Results
-    github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+Give each invocation in a workflow its own `section-key`, so results do not overwrite each other.

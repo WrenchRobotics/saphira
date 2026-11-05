@@ -23,7 +23,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from saphirapy.facade import write_output
-from saphirapy.fanout import DEFAULT_API_URL, api_endpoint
+from saphirapy.fanout import API_KEY_ENV, DEFAULT_API_URL, api_endpoint
 from saphirapy.github_actions_contracts import ResultRecord, collect_result_records
 from saphirapy.github_oidc import (
     OIDC_HEADER,
@@ -36,11 +36,10 @@ from saphirapy.github_oidc import (
 
 REPORT_SCHEMA_VERSION = 1
 REPORTS_PATH = "/v1/saphira/reports"
-API_KEY_ENV = "WRENCH_API_KEY"
 REPORT_USER_AGENT = f"saphira-report (report-schema/{REPORT_SCHEMA_VERSION})"
 # auto: post as the app, else fall back to the workflow comment. app: post as the app or fail.
-# workflow: only the workflow comment. none: neither, only the job summary.
-REPORT_MODES = ("auto", "app", "workflow", "none")
+# none: neither, only the job summary.
+REPORT_MODES = ("auto", "app", "none")
 # Statuses worth retrying: the endpoint is idempotent per run, attempt, and section.
 RETRYABLE_STATUSES = frozenset({502, 503})
 
@@ -65,7 +64,7 @@ class ReportError(RuntimeError):
 
 @dataclass(frozen=True)
 class ReportOutcome:
-    # posted, fallback, workflow, skipped, or failed.
+    # posted, fallback, skipped, or failed.
     status: str
     report_url: str = ""
     report_id: str = ""
@@ -76,7 +75,7 @@ class ReportOutcome:
     @property
     def workflow_comment(self) -> bool:
         """Whether the workflow should post its own PR comment."""
-        return self.status in {"fallback", "workflow"}
+        return self.status == "fallback"
 
 
 # --- Body -------------------------------------------------------------------------------------
@@ -258,8 +257,6 @@ def run_report(
         raise ValueError(f"Unknown report mode: {mode}")
     if mode == "none":
         return ReportOutcome("skipped")
-    if mode == "workflow":
-        return ReportOutcome("workflow")
 
     environ = os.environ if environ is None else environ
     api_key = (api_key or environ.get(API_KEY_ENV) or "").strip() or None

@@ -1,6 +1,8 @@
 name: Saphira Collate and Comment
 
-description: Collate multiple saphira-run-evaluate result JSON files into a single combined PR comment.
+description: >-
+  Deprecated: saphira-run reports its own results. Collates result JSON files into a section of a
+  combined PR comment.
 
 inputs:
   results-directories:
@@ -33,6 +35,10 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Warn about the deprecation
+      shell: bash
+      run: echo "::warning title=Saphira::saphira-collate-comment is deprecated and will be removed. saphira-run reports its own results."
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -46,14 +52,15 @@ runs:
         pip install brom_drake
         # Install from this action's own checkout so the action works from any repository.
         pip install "$GITHUB_ACTION_PATH/../../../src/python/saphirapy"
-        echo "action-path=$GITHUB_ACTION_PATH" >> "$GITHUB_OUTPUT"
+        # The scripts live with saphira-run.
+        echo "scripts-path=$GITHUB_ACTION_PATH/../saphira-run" >> "$GITHUB_OUTPUT"
 
     - name: Build combined summary
       id: combined-summary
       shell: bash
       run: |
         set -euo pipefail
-        summary="$(RESULTS_DIRECTORIES='${{ inputs.results-directories }}' python "$GITHUB_ACTION_PATH/collate_results.py")"
+        summary="$(RESULTS_DIRECTORIES='${{ inputs.results-directories }}' python "${{ steps.install.outputs.scripts-path }}/collate_results.py")"
 
         {
           echo "summary<<EOF"
@@ -73,7 +80,7 @@ runs:
         SECTION_HEADING: ${{ inputs.section-heading }}
         RESULTS_DIRECTORIES: ${{ inputs.results-directories }}
         COMBINED_SUMMARY: ${{ steps.combined-summary.outputs.summary }}
-        UPSERT_SCRIPT: ${{ steps.install.outputs.action-path }}/upsert_comment.js
+        UPSERT_SCRIPT: ${{ steps.install.outputs.scripts-path }}/upsert_comment.js
       with:
         github-token: ${{ inputs.github-token }}
         script: |

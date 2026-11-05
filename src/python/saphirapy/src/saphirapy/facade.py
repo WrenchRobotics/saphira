@@ -15,12 +15,10 @@ from saphirapy.detect_production_map import detect_production_mapping
 from saphirapy.fanout import (
     DEFAULT_API_URL,
     FANOUT_PATH,
-    FANOUT_TOKEN_ENV,
     FanoutResolution,
     api_endpoint,
     resolve_fanout,
 )
-from saphirapy.github_oidc import OIDC_MODES
 from saphirapy.github_actions_contracts import (
     build_cast_production_outputs,
     build_remote_actor_resolver,
@@ -28,6 +26,16 @@ from saphirapy.github_actions_contracts import (
     finalize_result_payload,
 )
 
+# Case kinds beyond the baseline: productions are the related productions, casts the alternative
+# actors for each cast call.
+KINDS = ("productions", "casts")
+# The kinds of local cases when none are chosen. Remote fanout then gets every kind the key permits.
+DEFAULT_LOCAL_KINDS = ("productions",)
+# Debugging knobs. They set the defaults of --fanout-timeout-seconds and --progress, so they reach
+# the facade from a workflow's env without being action inputs.
+FANOUT_TIMEOUT_ENV = "SAPHIRA_FANOUT_TIMEOUT_SECONDS"
+PROGRESS_ENV = "SAPHIRA_PROGRESS"
+PROGRESS_MODES = ("auto", "bar", "lines", "none")
 # The fanout service bounds local_cases; it only reads their identity, so send no more than that.
 MAX_CONTEXT_LOCAL_CASES = 500
 _GITHUB_CONTEXT_ENV = {
@@ -137,7 +145,7 @@ def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exce
 
 class ProgressReporter:
     def __init__(self, total: int, mode: str) -> None:
-        if mode not in {"auto", "bar", "lines", "none"}:
+        if mode not in PROGRESS_MODES:
             raise ValueError(f"Unknown progress mode: {mode}")
         if mode == "auto":
             mode = "lines" if os.environ.get("GITHUB_ACTIONS") or not sys.stderr.isatty() else "bar"
@@ -214,9 +222,12 @@ def run_fanout(
     return sorted(completed, key=lambda result: result["case-id"])
 
 
-def parse_fanout_kinds(raw: str | None) -> list[str] | None:
-    """Parse a comma-separated kind list; empty means "everything the key permits" (None)."""
+def parse_kinds(raw: str | None) -> list[str] | None:
+    """Parse a comma-separated kind list; empty means the defaults (None)."""
     kinds = list(dict.fromkeys(kind.strip() for kind in (raw or "").split(",") if kind.strip()))
+    unknown = [kind for kind in kinds if kind not in KINDS]
+    if unknown:
+        raise ValueError(f"Unknown kinds: {', '.join(unknown)}. Choose from {', '.join(KINDS)}.")
     return kinds or None
 
 
@@ -280,59 +291,51 @@ def main() -> int:
         help="The Wrench API. The fanout endpoint and the OIDC audience are derived from it.",
     )
     parser.add_argument(
-        "--fanout-endpoint",
-        help=f"Deprecated: overrides the fanout endpoint, which defaults to {FANOUT_PATH} on "
-        "--api-url.",
-    )
-    parser.add_argument(
-        "--fanout-token",
-        help=f"Bearer token for the fanout endpoint. Prefer the {FANOUT_TOKEN_ENV} environment "
-        "variable, which keeps the token out of the process list.",
-    )
-    parser.add_argument(
-        "--fanout-kinds",
+        "--kinds",
         default="",
-        help="Comma-separated remote fanout kinds, e.g. productions,casts. Empty requests every "
-        "kind the token permits.",
+        help=f"Comma-separated case kinds to run besides the baseline: {', '.join(KINDS)}. Empty "
+        f"runs {', '.join(DEFAULT_LOCAL_KINDS)} locally and requests every kind the key permits "
+        "from the Wrench API.",
     )
+    # argparse converts string defaults with type, so a bad value is refused like a bad flag.
     parser.add_argument(
-        "--fanout-oidc",
-        choices=OIDC_MODES,
-        default="auto",
-        help="Send a GitHub Actions OIDC token with the fanout request, which keys tied to a "
-        "repository require: auto (when the workflow grants id-token: write), always, or never.",
+        "--fanout-timeout-seconds", type=float, default=os.environ.get(FANOUT_TIMEOUT_ENV, "10")
     )
-    parser.add_argument("--fanout-timeout-seconds", type=float, default=10.0)
-    parser.add_argument("--include-alternative-productions", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--include-alternative-actors", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--max-concurrency", type=int)
     parser.add_argument("--run-timeout-seconds", type=int, default=900)
-    parser.add_argument("--progress", choices=("auto", "bar", "lines", "none"), default="auto")
+    parser.add_argument(
+        "--progress", choices=PROGRESS_MODES, default=os.environ.get(PROGRESS_ENV) or "auto"
+    )
     parser.add_argument("--restaged-output-directory", type=Path, default=Path("productions/facade-restaged"))
     parser.add_argument("--result-directory", type=Path, default=Path("productions/facade-results"))
     parser.add_argument("--github-output")
     args = parser.parse_args()
+    if args.progress not in PROGRESS_MODES:
+        parser.error(f"{PROGRESS_ENV} must be one of {', '.join(PROGRESS_MODES)}")
 
+    try:
+        kinds = parse_kinds(args.kinds)
+    except ValueError as error:
+        parser.error(str(error))
+    local_kinds = kinds or DEFAULT_LOCAL_KINDS
     target_file = locate_example(args.path_to_example_run).resolve()
     detection = detect_production_mapping(target_file)
     local_outputs = build_cast_production_outputs(
         json.dumps(detection),
         target_file,
-        args.include_alternative_productions,
-        args.include_alternative_actors,
+        "productions" in local_kinds,
+        "casts" in local_kinds,
     )
     local_cases = json.loads(local_outputs["cast-productions-json"])
     resolution = resolve_fanout(
         local_cases,
         source=args.fanout_source,
-        endpoint=args.fanout_endpoint or api_endpoint(args.api_url, FANOUT_PATH),
-        token=args.fanout_token,
+        endpoint=api_endpoint(args.api_url, FANOUT_PATH),
         timeout_seconds=args.fanout_timeout_seconds,
         context=build_fanout_context(
-            detection, local_cases, parse_fanout_kinds(args.fanout_kinds)
+            detection, local_cases, kinds
         ),
         actor_resolver=build_remote_actor_resolver(target_file),
-        oidc=args.fanout_oidc,
     )
     report_fanout_warnings(resolution.warnings, os.environ.get("GITHUB_STEP_SUMMARY"))
     results = run_fanout(

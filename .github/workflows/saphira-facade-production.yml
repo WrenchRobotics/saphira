@@ -47,13 +47,11 @@ jobs:
           api-key: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
           # The Saphira GitHub App must post the results; a workflow comment in its place fails the check.
           report-mode: app
-          include-alternative-actors: 'true'
+          kinds: productions,casts
           max-concurrency: '2'
           run-timeout-seconds: '300'
           python-version: ${{ env.PYTHON_VERSION }}
-          artifact-name: saphira-facade-production
-          section-key: saphira-facade-production
-          section-heading: Saphira Facade Production Results
+          name: Production
 
       - name: Verify remote fanout
         if: ${{ !cancelled() }}

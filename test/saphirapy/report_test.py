@@ -386,16 +386,14 @@ class RunReportTest(unittest.TestCase):
         outcome = self.run_report("auto", RoutingOpener(failures[403]()))
         self.assertIn("https://staging.wrenchrobotics.com/dashboard/github", outcome.reason)
 
-    def test_workflow_and_none_modes_send_nothing(self):
-        for mode, status, comment in (("workflow", "workflow", True), ("none", "skipped", False)):
-            with self.subTest(mode=mode):
-                opener = RoutingOpener()
+    def test_none_mode_sends_nothing(self):
+        opener = RoutingOpener()
 
-                outcome = self.run_report(mode, opener)
+        outcome = self.run_report("none", opener)
 
-                self.assertEqual(outcome.status, status)
-                self.assertEqual(outcome.workflow_comment, comment)
-                self.assertEqual(opener.requests, [])
+        self.assertEqual(outcome.status, "skipped")
+        self.assertFalse(outcome.workflow_comment)
+        self.assertEqual(opener.requests, [])
 
     def test_unknown_mode_is_refused(self):
         with self.assertRaises(ValueError):
@@ -469,13 +467,6 @@ class SubmitCliTest(unittest.TestCase):
                 with mock.patch("builtins.print"):
                     code = report.main()
             return code, output.read_text()
-
-    def test_workflow_mode_asks_for_the_workflow_comment(self):
-        code, output = self.run_main("--report-mode", "workflow")
-
-        self.assertEqual(code, 0)
-        self.assertIn("report-status=workflow\n", output)
-        self.assertIn("workflow-comment=true\n", output)
 
     def test_auto_without_a_key_falls_back(self):
         code, output = self.run_main("--report-mode", "auto", environ=GITHUB_ENV)

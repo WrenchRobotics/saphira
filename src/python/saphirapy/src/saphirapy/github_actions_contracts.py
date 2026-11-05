@@ -53,28 +53,6 @@ def _comparison_metadata(
     }
 
 
-def parse_detection_outputs(detection_json: str) -> dict[str, str]:
-    payload = json.loads(detection_json)
-    related_productions = payload.get("related_productions") or []
-    if not isinstance(related_productions, list):
-        raise ValueError("related_productions must be a list")
-
-    return {
-        "detected-parent": str(payload.get("detected_parent_class") or "UNMAPPED"),
-        "related-productions-json": json.dumps(
-            [str(production) for production in related_productions]
-        ),
-    }
-
-
-def write_detection_outputs(detection_json: str, github_output_path: Path) -> dict[str, str]:
-    outputs = parse_detection_outputs(detection_json)
-    with github_output_path.open("a", encoding="utf-8") as handle:
-        for key, value in outputs.items():
-            handle.write(f"{key}={value}\n")
-    return outputs
-
-
 def _option_constructor_name(instantiation_code: str) -> str | None:
     for statement in ast.parse(instantiation_code).body:
         if not isinstance(statement, ast.Assign) or not isinstance(statement.value, ast.Call):
@@ -193,6 +171,7 @@ def build_cast_production_outputs(
                     }
                 )
 
+    # The detected production always runs, as the baseline the other cases compare against.
     cast_productions: list[dict[str, Any]] = [
         {
             "production-class": str(production),
@@ -207,6 +186,7 @@ def build_cast_production_outputs(
             ),
         }
         for production in related_productions
+        if str(production) == detected_production or str(production) in alternative_productions
     ]
     cast_productions.extend(
         {
@@ -236,28 +216,6 @@ def build_cast_production_outputs(
         "has-alternative-actors": str(bool(alternative_actors)).lower(),
         "cast-productions-json": json.dumps(cast_productions),
     }
-
-
-def write_cast_production_outputs(
-    detection_json: str,
-    production_file: Path,
-    github_output_path: Path,
-    include_alternative_productions: bool,
-    include_alternative_actors: bool,
-) -> dict[str, str]:
-    outputs = parse_detection_outputs(detection_json)
-    outputs.update(
-        build_cast_production_outputs(
-            detection_json,
-            production_file,
-            include_alternative_productions,
-            include_alternative_actors,
-        )
-    )
-    with github_output_path.open("a", encoding="utf-8") as handle:
-        for key, value in outputs.items():
-            handle.write(f"{key}={value}\n")
-    return outputs
 
 
 def finalize_result_payload(
@@ -430,7 +388,7 @@ def build_summary(results_directories: str) -> str:
 
     lines = ["### Combined Saphira Metrics"]
     if not rows:
-        lines.append("- No run-evaluate result files were found")
+        lines.append("- No result files were found")
         return "\n".join(lines)
 
     pass_count = 0

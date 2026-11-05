@@ -20,12 +20,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: motion-planning
+          - name: Motion Planning
             path-to-example-run: src/examples/motion_planning1/chem.py
-            section-heading: Saphira Facade Local Results (Motion Planning)
-          - name: grasping
+          - name: Grasping
             path-to-example-run: src/examples/grasping1/
-            section-heading: Saphira Facade Local Results (Grasping)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,10 +39,8 @@ jobs:
           # The app must post the results, except on fork PRs, which get no secrets or OIDC token
           # and fall back to the workflow's own comment.
           report-mode: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'auto' || 'app' }}
-          include-alternative-actors: 'true'
+          kinds: productions,casts
           max-concurrency: '2'
           run-timeout-seconds: '300'
           python-version: ${{ env.PYTHON_VERSION }}
-          artifact-name: saphira-facade-local-${{ matrix.name }}
-          section-key: saphira-facade-local-${{ matrix.name }}
-          section-heading: ${{ matrix.section-heading }}
+          name: Local ${{ matrix.name }}

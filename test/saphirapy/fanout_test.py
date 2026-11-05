@@ -9,10 +9,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 from urllib.error import HTTPError, URLError
 
-from saphirapy.facade import build_fanout_context, parse_fanout_kinds, report_fanout_warnings
+from saphirapy.facade import build_fanout_context, parse_kinds, report_fanout_warnings
 from saphirapy.fanout import (
     FANOUT_PATH,
-    FANOUT_TOKEN_ENV,
+    API_KEY_ENV,
     FANOUT_USER_AGENT,
     FanoutRemoteError,
     RemoteActorUnavailable,
@@ -87,7 +87,7 @@ class FanoutTest(unittest.TestCase):
         # Tests choose their token explicitly; never pick one up from the developer's shell.
         patcher = mock.patch.dict(os.environ)
         patcher.start()
-        os.environ.pop(FANOUT_TOKEN_ENV, None)
+        os.environ.pop(API_KEY_ENV, None)
         self.addCleanup(patcher.stop)
 
     def resolve(self, opener, source="remote", **kwargs):
@@ -197,7 +197,7 @@ class FanoutTest(unittest.TestCase):
 
     def test_token_is_read_from_the_environment(self):
         opener = RecordingOpener()
-        os.environ[FANOUT_TOKEN_ENV] = TOKEN
+        os.environ[API_KEY_ENV] = TOKEN
 
         self.resolve(opener, token=None)
 
@@ -205,7 +205,7 @@ class FanoutTest(unittest.TestCase):
 
     def test_explicit_token_wins_over_the_environment(self):
         opener = RecordingOpener()
-        os.environ[FANOUT_TOKEN_ENV] = "from-environment"
+        os.environ[API_KEY_ENV] = "from-environment"
 
         self.resolve(opener, token=TOKEN)
 
@@ -225,7 +225,7 @@ class FanoutTest(unittest.TestCase):
     def test_missing_token_raises_under_remote_before_any_request(self):
         opener = RecordingOpener()
 
-        with self.assertRaisesRegex(ValueError, FANOUT_TOKEN_ENV):
+        with self.assertRaisesRegex(ValueError, API_KEY_ENV):
             self.resolve(opener, source="remote", token=None)
 
         self.assertEqual(opener.requests, [])
@@ -461,7 +461,7 @@ class FacadeContextTest(unittest.TestCase):
             "GITHUB_SHA": "abc123",
             "GITHUB_RUN_ID": "42",
             "GITHUB_RUN_ATTEMPT": "1",
-            FANOUT_TOKEN_ENV: TOKEN,
+            API_KEY_ENV: TOKEN,
         }
         detection = {"detected_parent_class": "ChemLabParent", "detected_production_class": "ChemLab1"}
 
@@ -491,12 +491,15 @@ class FacadeContextTest(unittest.TestCase):
 
         self.assertEqual(len(build_fanout_context({}, cases, None, {})["local_cases"]), 500)
 
-    def test_fanout_kinds_parsing(self):
-        self.assertIsNone(parse_fanout_kinds(""))
-        self.assertIsNone(parse_fanout_kinds(None))
-        self.assertIsNone(parse_fanout_kinds(" , "))
-        self.assertEqual(parse_fanout_kinds("productions, casts,productions"),
-                         ["productions", "casts"])
+    def test_kinds_parsing(self):
+        self.assertIsNone(parse_kinds(""))
+        self.assertIsNone(parse_kinds(None))
+        self.assertIsNone(parse_kinds(" , "))
+        self.assertEqual(parse_kinds("productions, casts,productions"), ["productions", "casts"])
+
+    def test_unknown_kinds_are_refused_with_the_choices(self):
+        with self.assertRaisesRegex(ValueError, "Unknown kinds: actors.*productions, casts"):
+            parse_kinds("productions,actors")
 
     def test_warnings_reach_annotations_and_the_job_summary(self):
         with TemporaryDirectory() as directory:

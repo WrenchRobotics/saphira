@@ -23,71 +23,35 @@ inputs:
     required: false
   report-mode:
     description: >-
-      auto, app, workflow, or none. auto submits the results to the Wrench API, which posts them
-      as the Saphira GitHub App, and falls back to the workflow's own PR comment when it cannot.
-      app fails instead of falling back, workflow only posts the workflow's comment, and none
-      only writes the job summary.
+      auto, app, or none. auto submits the results to the Wrench API, which posts them as the
+      Saphira GitHub App, and falls back to the workflow's own PR comment when it cannot. app
+      fails instead of falling back, and none only writes the job summary.
     required: false
     default: auto
-  fanout-endpoint:
-    description: Deprecated. Overrides the fanout endpoint, which is derived from api-url.
+  kinds:
+    description: >-
+      Comma-separated case kinds to run besides the baseline: productions (related productions)
+      and casts (alternative actors). Empty runs productions locally and requests every kind the
+      key permits from the Wrench API.
     required: false
     default: ''
-  fanout-token:
-    description: Deprecated alias of api-key.
-    required: false
-  fanout-kinds:
-    description: >-
-      Comma-separated remote fanout kinds, such as productions,casts. Empty requests every kind
-      the token permits.
-    required: false
-    default: ''
-  fanout-oidc:
-    description: >-
-      auto, always, or never. Sends a GitHub Actions OIDC token with the fanout request, which
-      Wrench API keys tied to a repository require. auto sends one when the workflow grants
-      'permissions: id-token: write'; always fails without one.
-    required: false
-    default: auto
-  fanout-timeout-seconds:
-    description: Timeout for the remote fanout request.
-    required: false
-    default: '10'
-  include-alternative-productions:
-    required: false
-    default: 'true'
-  include-alternative-actors:
-    required: false
-    default: 'false'
   max-concurrency:
     required: false
     default: ''
   run-timeout-seconds:
     required: false
     default: '900'
-  progress:
-    description: 'Progress mode: auto, bar, lines, or none.'
-    required: false
-    default: auto
   python-version:
+    description: 3.12, 3.13, or 3.14, the versions Drake publishes wheels for.
     required: false
     default: '3.14'
-  results-directory:
+  name:
+    description: >-
+      Names these results, such as Motion Planning. Each saphira-run in a workflow run needs its
+      own. The heading becomes 'Saphira Results (Motion Planning)', and the artifact
+      saphira-results-motion-planning. Empty gives 'Saphira Results' and saphira-results.
     required: false
-    default: productions/facade-results
-  restaged-output-directory:
-    required: false
-    default: productions/facade-restaged
-  artifact-name:
-    description: Name of the uploaded results artifact; must be unique within a workflow run.
-    required: false
-    default: saphira-facade-results
-  section-key:
-    required: false
-    default: saphira-facade
-  section-heading:
-    required: false
-    default: Saphira Facade Results
+    default: ''
   github-token:
     description: Token for the workflow's own PR comment, used only when the app does not post.
     required: false
@@ -101,7 +65,7 @@ outputs:
   remote-status:
     value: ${{ steps.run-facade.outputs.remote-status }}
   oidc-status:
-    description: sent, unavailable, failed, disabled, or not-requested.
+    description: sent, unavailable, failed, or not-requested.
     value: ${{ steps.run-facade.outputs.oidc-status }}
   fanout-request-id:
     description: The Wrench API's ID for the fanout request, empty without remote fanout.
@@ -110,7 +74,7 @@ outputs:
     description: How many of the cases that ran came from remote fanout.
     value: ${{ steps.run-facade.outputs.remote-case-count }}
   report-status:
-    description: posted, fallback, workflow, skipped, or failed.
+    description: posted, fallback, skipped, or failed.
     value: ${{ steps.submit.outputs.report-status }}
   report-url:
     description: The PR comment, or for other events the Check, posted by the Saphira GitHub App.
@@ -124,11 +88,95 @@ outputs:
     description: Cases that timed out. They are reported but do not fail the run.
     value: ${{ steps.run-facade.outputs.timed-out-count }}
   results-directory:
-    value: ${{ steps.run-facade.outputs.results-directory }}
+    description: Where the result JSON files are, for later steps that read them.
+    value: ${{ steps.names.outputs.results-directory }}
+  restaged-directory:
+    description: Where the restaged production files are.
+    value: ${{ steps.names.outputs.restaged-directory }}
 
 runs:
   using: composite
   steps:
+    # Fail before setup, rather than after the fanout, when an input is misspelled.
+    - name: Check inputs
+      shell: bash
+      env:
+        FANOUT_SOURCE: ${{ inputs.fanout-source }}
+        REPORT_MODE: ${{ inputs.report-mode }}
+        KINDS: ${{ inputs.kinds }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        RUN_TIMEOUT_SECONDS: ${{ inputs.run-timeout-seconds }}
+        MAX_CONCURRENCY: ${{ inputs.max-concurrency }}
+        API_URL: ${{ inputs.api-url }}
+      run: |
+        set -euo pipefail
+        failed=0
+        refuse() { echo "::error title=Saphira input::$1"; failed=1; }
+        case "$FANOUT_SOURCE" in
+          local|remote|remote-with-fallback) ;;
+          *) refuse "fanout-source must be local, remote, or remote-with-fallback, not '$FANOUT_SOURCE'." ;;
+        esac
+        case "$REPORT_MODE" in
+          auto|app|none) ;;
+          *) refuse "report-mode must be auto, app, or none, not '$REPORT_MODE'." ;;
+        esac
+        IFS=',' read -ra kinds <<< "$KINDS"
+        for kind in "${kinds[@]}"; do
+          kind="${kind//[[:space:]]/}"
+          case "$kind" in
+            ''|productions|casts) ;;
+            *) refuse "kinds can contain productions and casts, not '$kind'." ;;
+          esac
+        done
+        # Drake only publishes wheels for these versions.
+        if ! [[ "$PYTHON_VERSION" =~ ^3\.1[234](\.[0-9]+)?$ ]]; then
+          refuse "python-version must be 3.12, 3.13, or 3.14, as Drake requires, not '$PYTHON_VERSION'."
+        fi
+        if ! [[ "$RUN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+          refuse "run-timeout-seconds must be a whole number of seconds, not '$RUN_TIMEOUT_SECONDS'."
+        fi
+        if [ -n "$MAX_CONCURRENCY" ] && ! [[ "$MAX_CONCURRENCY" =~ ^[1-9][0-9]*$ ]]; then
+          refuse "max-concurrency must be a positive whole number, not '$MAX_CONCURRENCY'."
+        fi
+        if ! [[ "$API_URL" =~ ^https?://[^/]+/?$ ]]; then
+          refuse "api-url must be the API's base URL, such as https://api.wrenchrobotics.com, not '$API_URL'."
+        fi
+        exit "$failed"
+
+    - name: Name the results
+      id: names
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+      run: |
+        set -euo pipefail
+        if [ -z "$NAME" ]; then
+          key=saphira
+          heading='Saphira Results'
+          artifact=saphira-results
+        elif [[ "$NAME" == *$'\n'* ]]; then
+          echo "::error title=Saphira input::name must be a single line."
+          exit 1
+        else
+          # The same rule as saphirapy.report.normalize_section_key, within the API's pattern.
+          key="$(printf '%s' "$NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/-+/-/g; s/^-//' | cut -c1-48 | sed -E 's/-$//')"
+          if [ -z "$key" ]; then
+            echo "::error title=Saphira input::name '$NAME' needs at least one letter or digit."
+            exit 1
+          fi
+          heading="Saphira Results ($NAME)"
+          artifact="saphira-results-$key"
+        fi
+        # Outside the checkout, so the files never mix with the caller's own.
+        directory="$RUNNER_TEMP/saphira/$key"
+        {
+          echo "section-key=$key"
+          echo "section-heading=$heading"
+          echo "artifact-name=$artifact"
+          echo "results-directory=$directory/results"
+          echo "restaged-directory=$directory/restaged"
+        } >> "$GITHUB_OUTPUT"
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -142,34 +190,29 @@ runs:
         pip install brom_drake
         # Install from this action's own checkout so the action works from any repository.
         pip install "$GITHUB_ACTION_PATH/../../../src/python/saphirapy"
-        echo "collate-path=$GITHUB_ACTION_PATH/../saphira-collate-comment" >> "$GITHUB_OUTPUT"
+        # github-script steps see another action's path, so they get this one's from here.
+        echo "action-path=$GITHUB_ACTION_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Run Saphira facade
       id: run-facade
       shell: bash
       continue-on-error: true
       env:
-        FANOUT_TOKEN: ${{ inputs.api-key || inputs.fanout-token }}
-        FANOUT_KINDS: ${{ inputs.fanout-kinds }}
+        WRENCH_API_KEY: ${{ inputs.api-key }}
+        KINDS: ${{ inputs.kinds }}
       run: |
         set -euo pipefail
         args=(
           --path-to-example-run "${{ inputs.path-to-example-run }}"
           --api-url "${{ inputs.api-url }}"
           --fanout-source "${{ inputs.fanout-source }}"
-          --fanout-oidc "${{ inputs.fanout-oidc }}"
-          --fanout-timeout-seconds "${{ inputs.fanout-timeout-seconds }}"
           --run-timeout-seconds "${{ inputs.run-timeout-seconds }}"
-          --progress "${{ inputs.progress }}"
-          --result-directory "${{ inputs.results-directory }}"
-          --restaged-output-directory "${{ inputs.restaged-output-directory }}"
+          --result-directory "${{ steps.names.outputs.results-directory }}"
+          --restaged-output-directory "${{ steps.names.outputs.restaged-directory }}"
         )
-        if [ -n "${{ inputs.fanout-endpoint }}" ]; then args+=(--fanout-endpoint "${{ inputs.fanout-endpoint }}"); fi
-        # The token reaches the facade through FANOUT_TOKEN only, never the command line.
-        if [ -n "$FANOUT_KINDS" ]; then args+=(--fanout-kinds "$FANOUT_KINDS"); fi
+        # The key reaches the facade through WRENCH_API_KEY only, never the command line.
+        if [ -n "$KINDS" ]; then args+=(--kinds "$KINDS"); fi
         if [ -n "${{ inputs.max-concurrency }}" ]; then args+=(--max-concurrency "${{ inputs.max-concurrency }}"); fi
-        if [ "${{ inputs.include-alternative-productions }}" = 'false' ]; then args+=(--no-include-alternative-productions); fi
-        if [ "${{ inputs.include-alternative-actors }}" = 'true' ]; then args+=(--include-alternative-actors); fi
         saphira-run-facade "${args[@]}"
 
     - name: Upload facade artifacts
@@ -177,23 +220,20 @@ runs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ inputs.artifact-name }}
+        name: ${{ steps.names.outputs.artifact-name }}
         path: |
-          ${{ inputs.results-directory }}
-          ${{ inputs.restaged-output-directory }}
+          ${{ steps.names.outputs.results-directory }}
+          ${{ steps.names.outputs.restaged-directory }}
 
-    # A local `uses: ./.github/actions/...` would resolve against the caller's repository, so the
-    # collate scripts are called from this action's checkout instead.
     - name: Collate facade results
       id: collate
       if: always()
       shell: bash
       env:
-        RESULTS_DIRECTORIES: ${{ inputs.results-directory }}
-        COLLATE_PATH: ${{ steps.install.outputs.collate-path }}
+        RESULTS_DIRECTORIES: ${{ steps.names.outputs.results-directory }}
       run: |
         set -euo pipefail
-        summary="$(python "$COLLATE_PATH/collate_results.py")"
+        summary="$(python "$GITHUB_ACTION_PATH/collate_results.py")"
 
         {
           echo "summary<<EOF"
@@ -209,19 +249,19 @@ runs:
       if: always()
       shell: bash
       env:
-        WRENCH_API_KEY: ${{ inputs.api-key || inputs.fanout-token }}
-        RESULTS_DIRECTORY: ${{ inputs.results-directory }}
+        WRENCH_API_KEY: ${{ inputs.api-key }}
+        RESULTS_DIRECTORY: ${{ steps.names.outputs.results-directory }}
         REPORT_MODE: ${{ inputs.report-mode }}
         API_URL: ${{ inputs.api-url }}
-        SECTION_KEY: ${{ inputs.section-key }}
-        SECTION_HEADING: ${{ inputs.section-heading }}
+        SECTION_KEY: ${{ steps.names.outputs.section-key }}
+        SECTION_HEADING: ${{ steps.names.outputs.section-heading }}
         DETECTED_PARENT: ${{ steps.run-facade.outputs.detected-parent }}
         DETECTED_PRODUCTION: ${{ steps.run-facade.outputs.detected-production }}
         FANOUT_SOURCE: ${{ steps.run-facade.outputs.fanout-source }}
         REMOTE_STATUS: ${{ steps.run-facade.outputs.remote-status }}
         FANOUT_REQUEST_ID: ${{ steps.run-facade.outputs.fanout-request-id }}
         ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        ARTIFACT_NAME: ${{ steps.names.outputs.artifact-name }}
       run: |
         set -euo pipefail
         saphira-submit \
@@ -245,11 +285,11 @@ runs:
       uses: actions/github-script@v7
       env:
         DETECTED_PARENT: ${{ steps.run-facade.outputs.detected-parent }}
-        SECTION_KEY: ${{ inputs.section-key }}
-        SECTION_HEADING: ${{ inputs.section-heading }}
-        RESULTS_DIRECTORIES: ${{ inputs.results-directory }}
+        SECTION_KEY: ${{ steps.names.outputs.section-key }}
+        SECTION_HEADING: ${{ steps.names.outputs.section-heading }}
+        RESULTS_DIRECTORIES: ${{ steps.names.outputs.results-directory }}
         COMBINED_SUMMARY: ${{ steps.collate.outputs.summary }}
-        UPSERT_SCRIPT: ${{ steps.install.outputs.collate-path }}/upsert_comment.js
+        UPSERT_SCRIPT: ${{ steps.install.outputs.action-path }}/upsert_comment.js
       with:
         github-token: ${{ inputs.github-token }}
         script: |

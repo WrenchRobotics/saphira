@@ -21,8 +21,6 @@ from urllib.request import Request, urlopen
 OIDC_HEADER = "Wrench-GitHub-OIDC"
 ID_TOKEN_REQUEST_URL_ENV = "ACTIONS_ID_TOKEN_REQUEST_URL"
 ID_TOKEN_REQUEST_TOKEN_ENV = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
-# auto: send a token when the job can get one. always: fail without one. never: do not send one.
-OIDC_MODES = ("auto", "always", "never")
 PERMISSION_HINT = "add 'permissions: id-token: write' to the workflow or job"
 
 
