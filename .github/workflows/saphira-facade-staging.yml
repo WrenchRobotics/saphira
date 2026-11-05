@@ -45,9 +45,7 @@ jobs:
           max-concurrency: '2'
           run-timeout-seconds: '300'
           python-version: ${{ env.PYTHON_VERSION }}
-          artifact-name: saphira-facade-staging
-          section-key: saphira-facade-staging
-          section-heading: Saphira Facade Staging Results
+          name: Staging
 
       - name: Verify remote fanout
         if: ${{ !cancelled() }}
