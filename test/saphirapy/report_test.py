@@ -321,6 +321,29 @@ class RunReportTest(unittest.TestCase):
         self.assertEqual(outcome.report_url, POSTED["check_run_url"])
         self.assertEqual(outcome.warnings, ["fanout request not linked"])
 
+    def test_posted_report_links_the_report_page_when_the_api_gives_one(self):
+        page = "https://www.wrenchrobotics.com/dashboard/saphira/reports/5f0c1d2e"
+        for response in (
+            {**POSTED, "report_url": page},
+            {**POSTED, "report_url": page, "comment_url": None},
+        ):
+            with self.subTest(response=response):
+                outcome = self.run_report("app", RoutingOpener(FakeResponse(response, 201)))
+
+                self.assertEqual(outcome.status, "posted")
+                self.assertEqual(outcome.report_url, page)
+
+    def test_a_null_report_url_falls_back_to_the_comment_or_check(self):
+        # The API answers null while it does not link the report page yet.
+        outcome = self.run_report(
+            "app", RoutingOpener(FakeResponse({**POSTED, "report_url": None}, 201))
+        )
+        self.assertEqual(outcome.report_url, POSTED["comment_url"])
+
+        push = {**POSTED, "report_url": None, "comment_url": None}
+        outcome = self.run_report("app", RoutingOpener(FakeResponse(push, 201)))
+        self.assertEqual(outcome.report_url, POSTED["check_run_url"])
+
     def test_oidc_audience_is_derived_from_the_api_url(self):
         for api_url, audience in [
             ("https://api.wrenchrobotics.com", "https://api.wrenchrobotics.com"),
