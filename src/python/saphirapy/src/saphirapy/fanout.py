@@ -27,7 +27,8 @@ from saphirapy.github_oidc import (
 )
 
 FANOUT_SCHEMA_VERSION = 1
-FANOUT_TOKEN_ENV = "FANOUT_TOKEN"
+# The Wrench API key, for fanout and reports. It is read from here, never the command line.
+API_KEY_ENV = "WRENCH_API_KEY"
 DEFAULT_API_URL = "https://api.wrenchrobotics.com"
 FANOUT_PATH = "/v1/saphira/fanout"
 # urllib's default "Python-urllib/x.y" is blocked by CDN bot checks (e.g. Cloudflare error 1010).
@@ -335,7 +336,7 @@ def resolve_fanout(
 ) -> FanoutResolution:
     """Resolve local cases and optional remote additions.
 
-    ``token`` defaults to the ``FANOUT_TOKEN`` environment variable. ``remote-with-fallback``
+    ``token`` defaults to the ``WRENCH_API_KEY`` environment variable. ``remote-with-fallback``
     falls back only for retryable transport/service failures and a missing token (as on fork
     pull requests, where secrets are unavailable). Invalid responses, remote cases carrying
     code, and authorization failures remain hard errors.
@@ -353,14 +354,14 @@ def resolve_fanout(
     if oidc not in OIDC_MODES:
         raise ValueError(f"Unknown fanout OIDC mode: {oidc}")
 
-    token = (token or os.environ.get(FANOUT_TOKEN_ENV) or "").strip() or None
+    token = (token or os.environ.get(API_KEY_ENV) or "").strip() or None
     if token is None:
         if source == "remote-with-fallback":
             return FanoutResolution(
                 merge_fanout_cases(local_cases, []), "local-fallback", "no fanout token provided"
             )
         raise ValueError(
-            f"fanout-source 'remote' needs a token: pass --fanout-token or set {FANOUT_TOKEN_ENV}"
+            f"fanout-source 'remote' needs a Wrench API key: set {API_KEY_ENV}"
         )
 
     oidc_token, oidc_status, oidc_warnings = _oidc_token(

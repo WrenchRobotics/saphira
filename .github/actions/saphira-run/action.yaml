@@ -29,13 +29,6 @@ inputs:
       only writes the job summary.
     required: false
     default: auto
-  fanout-endpoint:
-    description: Deprecated. Overrides the fanout endpoint, which is derived from api-url.
-    required: false
-    default: ''
-  fanout-token:
-    description: Deprecated alias of api-key.
-    required: false
   fanout-kinds:
     description: >-
       Comma-separated remote fanout kinds, such as productions,casts. Empty requests every kind
@@ -149,7 +142,7 @@ runs:
       shell: bash
       continue-on-error: true
       env:
-        FANOUT_TOKEN: ${{ inputs.api-key || inputs.fanout-token }}
+        WRENCH_API_KEY: ${{ inputs.api-key }}
         FANOUT_KINDS: ${{ inputs.fanout-kinds }}
       run: |
         set -euo pipefail
@@ -164,8 +157,7 @@ runs:
           --result-directory "${{ inputs.results-directory }}"
           --restaged-output-directory "${{ inputs.restaged-output-directory }}"
         )
-        if [ -n "${{ inputs.fanout-endpoint }}" ]; then args+=(--fanout-endpoint "${{ inputs.fanout-endpoint }}"); fi
-        # The token reaches the facade through FANOUT_TOKEN only, never the command line.
+        # The key reaches the facade through WRENCH_API_KEY only, never the command line.
         if [ -n "$FANOUT_KINDS" ]; then args+=(--fanout-kinds "$FANOUT_KINDS"); fi
         if [ -n "${{ inputs.max-concurrency }}" ]; then args+=(--max-concurrency "${{ inputs.max-concurrency }}"); fi
         if [ "${{ inputs.include-alternative-productions }}" = 'false' ]; then args+=(--no-include-alternative-productions); fi
@@ -209,7 +201,7 @@ runs:
       if: always()
       shell: bash
       env:
-        WRENCH_API_KEY: ${{ inputs.api-key || inputs.fanout-token }}
+        WRENCH_API_KEY: ${{ inputs.api-key }}
         RESULTS_DIRECTORY: ${{ inputs.results-directory }}
         REPORT_MODE: ${{ inputs.report-mode }}
         API_URL: ${{ inputs.api-url }}

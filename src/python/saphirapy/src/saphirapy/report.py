@@ -23,7 +23,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from saphirapy.facade import write_output
-from saphirapy.fanout import DEFAULT_API_URL, api_endpoint
+from saphirapy.fanout import API_KEY_ENV, DEFAULT_API_URL, api_endpoint
 from saphirapy.github_actions_contracts import ResultRecord, collect_result_records
 from saphirapy.github_oidc import (
     OIDC_HEADER,
@@ -36,7 +36,6 @@ from saphirapy.github_oidc import (
 
 REPORT_SCHEMA_VERSION = 1
 REPORTS_PATH = "/v1/saphira/reports"
-API_KEY_ENV = "WRENCH_API_KEY"
 REPORT_USER_AGENT = f"saphira-report (report-schema/{REPORT_SCHEMA_VERSION})"
 # auto: post as the app, else fall back to the workflow comment. app: post as the app or fail.
 # workflow: only the workflow comment. none: neither, only the job summary.

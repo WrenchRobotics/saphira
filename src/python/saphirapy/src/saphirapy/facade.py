@@ -15,7 +15,6 @@ from saphirapy.detect_production_map import detect_production_mapping
 from saphirapy.fanout import (
     DEFAULT_API_URL,
     FANOUT_PATH,
-    FANOUT_TOKEN_ENV,
     FanoutResolution,
     api_endpoint,
     resolve_fanout,
@@ -280,16 +279,6 @@ def main() -> int:
         help="The Wrench API. The fanout endpoint and the OIDC audience are derived from it.",
     )
     parser.add_argument(
-        "--fanout-endpoint",
-        help=f"Deprecated: overrides the fanout endpoint, which defaults to {FANOUT_PATH} on "
-        "--api-url.",
-    )
-    parser.add_argument(
-        "--fanout-token",
-        help=f"Bearer token for the fanout endpoint. Prefer the {FANOUT_TOKEN_ENV} environment "
-        "variable, which keeps the token out of the process list.",
-    )
-    parser.add_argument(
         "--fanout-kinds",
         default="",
         help="Comma-separated remote fanout kinds, e.g. productions,casts. Empty requests every "
@@ -325,8 +314,7 @@ def main() -> int:
     resolution = resolve_fanout(
         local_cases,
         source=args.fanout_source,
-        endpoint=args.fanout_endpoint or api_endpoint(args.api_url, FANOUT_PATH),
-        token=args.fanout_token,
+        endpoint=api_endpoint(args.api_url, FANOUT_PATH),
         timeout_seconds=args.fanout_timeout_seconds,
         context=build_fanout_context(
             detection, local_cases, parse_fanout_kinds(args.fanout_kinds)

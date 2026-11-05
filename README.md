@@ -52,9 +52,7 @@ The token's audience is the scheme and host of `api-url` (`https://api.wrenchrob
 
 The `oidc-status` output reports what happened: `sent`, `unavailable` (no permission), `failed`, `disabled`, or `not-requested` (no remote request was made). Neither the token nor the API key is ever printed.
 
-The action passes the API key to the facade through the `FANOUT_TOKEN` environment variable, and to `saphira-submit` through `WRENCH_API_KEY`, never on the command line. When running `saphira-run-facade` yourself, prefer `FANOUT_TOKEN` over `--fanout-token` for the same reason.
-
-`fanout-token` and `fanout-endpoint` are deprecated: `fanout-token` is an alias of `api-key`, and `fanout-endpoint` overrides the fanout endpoint derived from `api-url`.
+The action passes the API key to `saphira-run-facade` and `saphira-submit` through the `WRENCH_API_KEY` environment variable, never on the command line. Both CLIs read it only from there.
 
 The facade POSTs the detected parent and production, the local case IDs, and the `GITHUB_REPOSITORY`, `GITHUB_SHA`, `GITHUB_RUN_ID`, and `GITHUB_RUN_ATTEMPT` values so the service can choose relevant cases.
 
