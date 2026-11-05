@@ -87,7 +87,7 @@ The `report-mode` input decides what happens:
 - `app` submits the report and fails the job when the app cannot post.
 - `none` posts nothing. The results are still in the job summary and the uploaded artifacts.
 
-The `report-status` output is `posted`, `fallback`, `skipped`, or `failed`, and `report-url` links the app's PR comment, or for other events its Check. The job still passes or fails on the results themselves, whatever the report mode.
+The `report-status` output is `posted`, `fallback`, `skipped`, or `failed`, and `report-url` links the run's report page on the Wrench website, or, where the API does not link that page, the app's PR comment, or for other events its Check. The job still passes or fails on the results themselves, whatever the report mode.
 
 `api-url` chooses the Wrench environment and so which app posts: `https://api.wrenchrobotics.com` posts as Wrench Saphira, and `https://api-staging.wrenchrobotics.com` as Wrench Saphira [Staging]. Each needs a key from its own environment.
 

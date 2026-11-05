@@ -293,9 +293,12 @@ def run_report(
         return ReportOutcome("fallback" if mode == "auto" else "failed", reason=reason)
 
     warnings = response.get("warnings")
+    # The website's report page when the API links it; otherwise (older APIs, or one that does
+    # not link the page yet) the PR comment, or for other events the Check.
+    link = response.get("report_url") or response.get("comment_url") or response.get("check_run_url")
     return ReportOutcome(
         "posted",
-        report_url=str(response.get("comment_url") or response.get("check_run_url") or ""),
+        report_url=str(link or ""),
         report_id=str(response.get("report_id") or ""),
         warnings=[str(w) for w in warnings] if isinstance(warnings, list) else [],
     )
