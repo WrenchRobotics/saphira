@@ -388,7 +388,7 @@ def build_summary(results_directories: str) -> str:
 
     lines = ["### Combined Saphira Metrics"]
     if not rows:
-        lines.append("- No run-evaluate result files were found")
+        lines.append("- No result files were found")
         return "\n".join(lines)
 
     pass_count = 0

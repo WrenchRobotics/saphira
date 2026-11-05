@@ -39,13 +39,13 @@ Without a `WRENCH_SAPHIRA_API_KEY` secret, the run uses local cases only and the
 
 Every run includes the baseline: your production as written. `kinds` adds more cases: `productions` runs the related productions with your current cast, and `casts` runs your production with each alternative actor. It applies to local cases and to the cases requested from the Wrench API. When it is empty, local cases include `productions`, and the API returns every kind your key allows. Requesting a kind your key does not allow fails the run with the missing scope.
 
+`fanout-source` is `remote-with-fallback` by default. `local` never contacts the service. `remote` fails if the service cannot provide cases. `remote-with-fallback` uses local cases when the service is unreachable or returns a retryable server error, and when no token is available (as on pull requests from forks, where secrets are withheld). It still fails for invalid responses and authorization errors, including a `kinds` entry the key does not permit; the error names the missing scope. Remote cases are deduplicated against local cases by `case-id` and retain their source in result JSON.
+
 When a workflow runs `saphira-run` more than once, for example in a matrix, give each run its own `name`, such as `name: ${{ matrix.name }}`. It names the results' Check, PR comment section, and artifact. With `name: Motion Planning`, the heading is `Saphira Results (Motion Planning)` and the artifact is `saphira-results-motion-planning`.
 
 The action writes its files under `$RUNNER_TEMP`, never into your checkout, and uploads them as that artifact. Later steps can read them from the `results-directory` (result JSON files) and `restaged-directory` (restaged productions) outputs.
 
 Two environment variables help when debugging, and can be set in the workflow's or step's `env`: `SAPHIRA_PROGRESS` (`auto` by default, or `bar`, `lines`, or `none`) and `SAPHIRA_FANOUT_TIMEOUT_SECONDS` (the timeout of the request to the Wrench API, `10` by default).
-
-`local` never contacts the service. `remote` fails if the service cannot provide cases. `remote-with-fallback` uses local cases when the service is unreachable or returns a retryable server error, and when no token is available (as on pull requests from forks, where secrets are withheld). It still fails for invalid responses and authorization errors, including a `kinds` entry the key does not permit; the error names the missing scope. Remote cases are deduplicated against local cases by `case-id` and retain their source in result JSON.
 
 ### Keys tied to a repository
 
