@@ -35,13 +35,6 @@ inputs:
       the token permits.
     required: false
     default: ''
-  fanout-oidc:
-    description: >-
-      auto, always, or never. Sends a GitHub Actions OIDC token with the fanout request, which
-      Wrench API keys tied to a repository require. auto sends one when the workflow grants
-      'permissions: id-token: write'; always fails without one.
-    required: false
-    default: auto
   fanout-timeout-seconds:
     description: Timeout for the remote fanout request.
     required: false
@@ -94,7 +87,7 @@ outputs:
   remote-status:
     value: ${{ steps.run-facade.outputs.remote-status }}
   oidc-status:
-    description: sent, unavailable, failed, disabled, or not-requested.
+    description: sent, unavailable, failed, or not-requested.
     value: ${{ steps.run-facade.outputs.oidc-status }}
   fanout-request-id:
     description: The Wrench API's ID for the fanout request, empty without remote fanout.
@@ -150,7 +143,6 @@ runs:
           --path-to-example-run "${{ inputs.path-to-example-run }}"
           --api-url "${{ inputs.api-url }}"
           --fanout-source "${{ inputs.fanout-source }}"
-          --fanout-oidc "${{ inputs.fanout-oidc }}"
           --fanout-timeout-seconds "${{ inputs.fanout-timeout-seconds }}"
           --run-timeout-seconds "${{ inputs.run-timeout-seconds }}"
           --progress "${{ inputs.progress }}"

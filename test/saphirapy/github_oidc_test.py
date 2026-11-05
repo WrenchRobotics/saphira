@@ -124,19 +124,18 @@ class RequestTokenTest(unittest.TestCase):
 
 
 class FanoutOIDCTest(unittest.TestCase):
-    def resolve(self, opener, environ, oidc="auto", **kwargs):
+    def resolve(self, opener, environ, **kwargs):
         return resolve_fanout(
             LOCAL_CASES,
             source="remote",
             endpoint=ENDPOINT,
             token=TOKEN,
-            oidc=oidc,
             environ=environ,
             opener=opener,
             **kwargs,
         )
 
-    def test_auto_sends_the_token_next_to_the_api_key(self):
+    def test_sends_the_token_next_to_the_api_key(self):
         opener = RoutingOpener()
 
         resolution = self.resolve(opener, GITHUB_ENV)
@@ -151,7 +150,7 @@ class FanoutOIDCTest(unittest.TestCase):
         self.assertEqual(resolution.oidc_status, "sent")
         self.assertEqual(resolution.warnings, [])
 
-    def test_auto_sends_no_token_without_the_permission(self):
+    def test_sends_no_token_without_the_permission(self):
         opener = RoutingOpener()
 
         resolution = self.resolve(opener, {})
@@ -160,7 +159,7 @@ class FanoutOIDCTest(unittest.TestCase):
         self.assertIsNone(fanout_request.get_header(OIDC_HEADER.capitalize()))
         self.assertEqual(resolution.oidc_status, "unavailable")
 
-    def test_auto_carries_on_with_a_warning_when_github_fails(self):
+    def test_carries_on_with_a_warning_when_github_fails(self):
         opener = RoutingOpener(token_answer=URLError("down"))
 
         resolution = self.resolve(opener, GITHUB_ENV)
@@ -171,25 +170,6 @@ class FanoutOIDCTest(unittest.TestCase):
         self.assertEqual(len(resolution.warnings), 1)
         self.assertIn("No GitHub Actions OIDC token was sent", resolution.warnings[0])
         self.assertEqual(resolution.source, "local-plus-remote")
-
-    def test_always_fails_without_the_permission_and_names_it(self):
-        opener = RoutingOpener()
-
-        with self.assertRaisesRegex(ValueError, "id-token: write"):
-            self.resolve(opener, {}, oidc="always")
-        self.assertEqual(opener.requests, [])
-
-    def test_always_fails_when_github_fails(self):
-        with self.assertRaises(OIDCTokenError):
-            self.resolve(RoutingOpener(token_answer=URLError("down")), GITHUB_ENV, oidc="always")
-
-    def test_never_sends_no_token(self):
-        opener = RoutingOpener()
-
-        resolution = self.resolve(opener, GITHUB_ENV, oidc="never")
-
-        self.assertEqual(opener.to(REQUEST_URL), [])
-        self.assertEqual(resolution.oidc_status, "disabled")
 
     def test_no_token_is_requested_when_the_run_falls_back_without_an_api_key(self):
         opener = RoutingOpener()
@@ -221,10 +201,6 @@ class FanoutOIDCTest(unittest.TestCase):
 
         self.assertEqual(resolution.source, "local-fallback")
         self.assertEqual(resolution.oidc_status, "sent")
-
-    def test_an_unknown_mode_is_refused(self):
-        with self.assertRaises(ValueError):
-            self.resolve(RoutingOpener(), GITHUB_ENV, oidc="sometimes")
 
     def test_neither_token_reaches_the_errors_from_a_refused_request(self):
         refusal = HTTPError(

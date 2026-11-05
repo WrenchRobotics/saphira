@@ -19,7 +19,6 @@ from saphirapy.fanout import (
     api_endpoint,
     resolve_fanout,
 )
-from saphirapy.github_oidc import OIDC_MODES
 from saphirapy.github_actions_contracts import (
     build_cast_production_outputs,
     build_remote_actor_resolver,
@@ -284,13 +283,6 @@ def main() -> int:
         help="Comma-separated remote fanout kinds, e.g. productions,casts. Empty requests every "
         "kind the token permits.",
     )
-    parser.add_argument(
-        "--fanout-oidc",
-        choices=OIDC_MODES,
-        default="auto",
-        help="Send a GitHub Actions OIDC token with the fanout request, which keys tied to a "
-        "repository require: auto (when the workflow grants id-token: write), always, or never.",
-    )
     parser.add_argument("--fanout-timeout-seconds", type=float, default=10.0)
     parser.add_argument("--include-alternative-productions", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--include-alternative-actors", action=argparse.BooleanOptionalAction, default=False)
@@ -320,7 +312,6 @@ def main() -> int:
             detection, local_cases, parse_fanout_kinds(args.fanout_kinds)
         ),
         actor_resolver=build_remote_actor_resolver(target_file),
-        oidc=args.fanout_oidc,
     )
     report_fanout_warnings(resolution.warnings, os.environ.get("GITHUB_STEP_SUMMARY"))
     results = run_fanout(
