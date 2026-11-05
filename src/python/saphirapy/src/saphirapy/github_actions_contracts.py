@@ -193,6 +193,7 @@ def build_cast_production_outputs(
                     }
                 )
 
+    # The detected production always runs, as the baseline the other cases compare against.
     cast_productions: list[dict[str, Any]] = [
         {
             "production-class": str(production),
@@ -207,6 +208,7 @@ def build_cast_production_outputs(
             ),
         }
         for production in related_productions
+        if str(production) == detected_production or str(production) in alternative_productions
     ]
     cast_productions.extend(
         {

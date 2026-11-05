@@ -26,6 +26,11 @@ from saphirapy.github_actions_contracts import (
     finalize_result_payload,
 )
 
+# Case kinds beyond the baseline: productions are the related productions, casts the alternative
+# actors for each cast call.
+KINDS = ("productions", "casts")
+# The kinds of local cases when none are chosen. Remote fanout then gets every kind the key permits.
+DEFAULT_LOCAL_KINDS = ("productions",)
 # The fanout service bounds local_cases; it only reads their identity, so send no more than that.
 MAX_CONTEXT_LOCAL_CASES = 500
 _GITHUB_CONTEXT_ENV = {
@@ -212,9 +217,12 @@ def run_fanout(
     return sorted(completed, key=lambda result: result["case-id"])
 
 
-def parse_fanout_kinds(raw: str | None) -> list[str] | None:
-    """Parse a comma-separated kind list; empty means "everything the key permits" (None)."""
+def parse_kinds(raw: str | None) -> list[str] | None:
+    """Parse a comma-separated kind list; empty means the defaults (None)."""
     kinds = list(dict.fromkeys(kind.strip() for kind in (raw or "").split(",") if kind.strip()))
+    unknown = [kind for kind in kinds if kind not in KINDS]
+    if unknown:
+        raise ValueError(f"Unknown kinds: {', '.join(unknown)}. Choose from {', '.join(KINDS)}.")
     return kinds or None
 
 
@@ -278,14 +286,13 @@ def main() -> int:
         help="The Wrench API. The fanout endpoint and the OIDC audience are derived from it.",
     )
     parser.add_argument(
-        "--fanout-kinds",
+        "--kinds",
         default="",
-        help="Comma-separated remote fanout kinds, e.g. productions,casts. Empty requests every "
-        "kind the token permits.",
+        help=f"Comma-separated case kinds to run besides the baseline: {', '.join(KINDS)}. Empty "
+        f"runs {', '.join(DEFAULT_LOCAL_KINDS)} locally and requests every kind the key permits "
+        "from the Wrench API.",
     )
     parser.add_argument("--fanout-timeout-seconds", type=float, default=10.0)
-    parser.add_argument("--include-alternative-productions", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--include-alternative-actors", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--max-concurrency", type=int)
     parser.add_argument("--run-timeout-seconds", type=int, default=900)
     parser.add_argument("--progress", choices=("auto", "bar", "lines", "none"), default="auto")
@@ -294,13 +301,18 @@ def main() -> int:
     parser.add_argument("--github-output")
     args = parser.parse_args()
 
+    try:
+        kinds = parse_kinds(args.kinds)
+    except ValueError as error:
+        parser.error(str(error))
+    local_kinds = kinds or DEFAULT_LOCAL_KINDS
     target_file = locate_example(args.path_to_example_run).resolve()
     detection = detect_production_mapping(target_file)
     local_outputs = build_cast_production_outputs(
         json.dumps(detection),
         target_file,
-        args.include_alternative_productions,
-        args.include_alternative_actors,
+        "productions" in local_kinds,
+        "casts" in local_kinds,
     )
     local_cases = json.loads(local_outputs["cast-productions-json"])
     resolution = resolve_fanout(
@@ -309,7 +321,7 @@ def main() -> int:
         endpoint=api_endpoint(args.api_url, FANOUT_PATH),
         timeout_seconds=args.fanout_timeout_seconds,
         context=build_fanout_context(
-            detection, local_cases, parse_fanout_kinds(args.fanout_kinds)
+            detection, local_cases, kinds
         ),
         actor_resolver=build_remote_actor_resolver(target_file),
     )

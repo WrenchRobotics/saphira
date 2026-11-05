@@ -102,7 +102,7 @@ class TestGitHubActionContracts(unittest.TestCase):
         disabled_cast_productions = json.loads(disabled_outputs["cast-productions-json"])
         self.assertEqual(
             [cast_production["cast-production-name"] for cast_production in disabled_cast_productions],
-            ["production-ChemLab1", "production-ShelfPlanning1"],
+            ["production-ChemLab1"],
         )
         self.assertTrue(
             all(cast_production["actor-variant-json"] == "" for cast_production in disabled_cast_productions)

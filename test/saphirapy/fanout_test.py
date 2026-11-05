@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 from urllib.error import HTTPError, URLError
 
-from saphirapy.facade import build_fanout_context, parse_fanout_kinds, report_fanout_warnings
+from saphirapy.facade import build_fanout_context, parse_kinds, report_fanout_warnings
 from saphirapy.fanout import (
     FANOUT_PATH,
     API_KEY_ENV,
@@ -491,12 +491,15 @@ class FacadeContextTest(unittest.TestCase):
 
         self.assertEqual(len(build_fanout_context({}, cases, None, {})["local_cases"]), 500)
 
-    def test_fanout_kinds_parsing(self):
-        self.assertIsNone(parse_fanout_kinds(""))
-        self.assertIsNone(parse_fanout_kinds(None))
-        self.assertIsNone(parse_fanout_kinds(" , "))
-        self.assertEqual(parse_fanout_kinds("productions, casts,productions"),
-                         ["productions", "casts"])
+    def test_kinds_parsing(self):
+        self.assertIsNone(parse_kinds(""))
+        self.assertIsNone(parse_kinds(None))
+        self.assertIsNone(parse_kinds(" , "))
+        self.assertEqual(parse_kinds("productions, casts,productions"), ["productions", "casts"])
+
+    def test_unknown_kinds_are_refused_with_the_choices(self):
+        with self.assertRaisesRegex(ValueError, "Unknown kinds: actors.*productions, casts"):
+            parse_kinds("productions,actors")
 
     def test_warnings_reach_annotations_and_the_job_summary(self):
         with TemporaryDirectory() as directory:

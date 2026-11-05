@@ -29,22 +29,17 @@ inputs:
       only writes the job summary.
     required: false
     default: auto
-  fanout-kinds:
+  kinds:
     description: >-
-      Comma-separated remote fanout kinds, such as productions,casts. Empty requests every kind
-      the token permits.
+      Comma-separated case kinds to run besides the baseline: productions (related productions)
+      and casts (alternative actors). Empty runs productions locally and requests every kind the
+      key permits from the Wrench API.
     required: false
     default: ''
   fanout-timeout-seconds:
     description: Timeout for the remote fanout request.
     required: false
     default: '10'
-  include-alternative-productions:
-    required: false
-    default: 'true'
-  include-alternative-actors:
-    required: false
-    default: 'false'
   max-concurrency:
     required: false
     default: ''
@@ -136,7 +131,7 @@ runs:
       continue-on-error: true
       env:
         WRENCH_API_KEY: ${{ inputs.api-key }}
-        FANOUT_KINDS: ${{ inputs.fanout-kinds }}
+        KINDS: ${{ inputs.kinds }}
       run: |
         set -euo pipefail
         args=(
@@ -150,10 +145,8 @@ runs:
           --restaged-output-directory "${{ inputs.restaged-output-directory }}"
         )
         # The key reaches the facade through WRENCH_API_KEY only, never the command line.
-        if [ -n "$FANOUT_KINDS" ]; then args+=(--fanout-kinds "$FANOUT_KINDS"); fi
+        if [ -n "$KINDS" ]; then args+=(--kinds "$KINDS"); fi
         if [ -n "${{ inputs.max-concurrency }}" ]; then args+=(--max-concurrency "${{ inputs.max-concurrency }}"); fi
-        if [ "${{ inputs.include-alternative-productions }}" = 'false' ]; then args+=(--no-include-alternative-productions); fi
-        if [ "${{ inputs.include-alternative-actors }}" = 'true' ]; then args+=(--include-alternative-actors); fi
         saphira-run-facade "${args[@]}"
 
     - name: Upload facade artifacts
