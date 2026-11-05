@@ -42,6 +42,7 @@ inputs:
     required: false
     default: '900'
   python-version:
+    description: 3.12, 3.13, or 3.14, the versions Drake publishes wheels for.
     required: false
     default: '3.14'
   name:
@@ -96,6 +97,52 @@ outputs:
 runs:
   using: composite
   steps:
+    # Fail before setup, rather than after the fanout, when an input is misspelled.
+    - name: Check inputs
+      shell: bash
+      env:
+        FANOUT_SOURCE: ${{ inputs.fanout-source }}
+        REPORT_MODE: ${{ inputs.report-mode }}
+        KINDS: ${{ inputs.kinds }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        RUN_TIMEOUT_SECONDS: ${{ inputs.run-timeout-seconds }}
+        MAX_CONCURRENCY: ${{ inputs.max-concurrency }}
+        API_URL: ${{ inputs.api-url }}
+      run: |
+        set -euo pipefail
+        failed=0
+        refuse() { echo "::error title=Saphira input::$1"; failed=1; }
+        case "$FANOUT_SOURCE" in
+          local|remote|remote-with-fallback) ;;
+          *) refuse "fanout-source must be local, remote, or remote-with-fallback, not '$FANOUT_SOURCE'." ;;
+        esac
+        case "$REPORT_MODE" in
+          auto|app|none) ;;
+          *) refuse "report-mode must be auto, app, or none, not '$REPORT_MODE'." ;;
+        esac
+        IFS=',' read -ra kinds <<< "$KINDS"
+        for kind in "${kinds[@]}"; do
+          kind="${kind//[[:space:]]/}"
+          case "$kind" in
+            ''|productions|casts) ;;
+            *) refuse "kinds can contain productions and casts, not '$kind'." ;;
+          esac
+        done
+        # Drake only publishes wheels for these versions.
+        if ! [[ "$PYTHON_VERSION" =~ ^3\.1[234](\.[0-9]+)?$ ]]; then
+          refuse "python-version must be 3.12, 3.13, or 3.14, as Drake requires, not '$PYTHON_VERSION'."
+        fi
+        if ! [[ "$RUN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+          refuse "run-timeout-seconds must be a whole number of seconds, not '$RUN_TIMEOUT_SECONDS'."
+        fi
+        if [ -n "$MAX_CONCURRENCY" ] && ! [[ "$MAX_CONCURRENCY" =~ ^[1-9][0-9]*$ ]]; then
+          refuse "max-concurrency must be a positive whole number, not '$MAX_CONCURRENCY'."
+        fi
+        if ! [[ "$API_URL" =~ ^https?://[^/]+/?$ ]]; then
+          refuse "api-url must be the API's base URL, such as https://api.wrenchrobotics.com, not '$API_URL'."
+        fi
+        exit "$failed"
+
     - name: Name the results
       id: names
       shell: bash
