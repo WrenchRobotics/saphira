@@ -1,12 +1,37 @@
-# saphira
+# Saphira
 
-A GitHub action for automated testing and validation of robotics algorithms.
+Saphira tests your robotics algorithm in situations you did not write tests for. On every pull request it runs your [brom_drake](https://github.com/kwesiRutledge/brom_drake-py) production as written, then runs the same algorithm in related scenes and with alternative algorithms, and reports what changed compared with your main branch.
 
-## Saphira Facade Action
+Results appear as a GitHub Check and a pull request comment, with a link to a full report on the Wrench website.
 
-The `saphira-run` action is the single-entry-point interface for detecting and running a Saphira fanout. It runs your production's local cases and, when a Wrench API key is available, appends corner cases from the Wrench fanout service and has the Saphira GitHub App post the results.
+## Before you start
 
-Copy this into `.github/workflows/saphira.yml` and change `path-to-example-run`. It works without any other configuration:
+You need:
+
+- A GitHub repository where you can add workflows and Actions secrets.
+- A Python script in that repository that builds and simulates a brom_drake production. Saphira currently supports `ChemLab1` and `ShelfPlanning1` (kinematic motion planning) and `ChemLab2` (offline dynamic motion planning). [`src/examples/motion_planning1/chem.py`](src/examples/motion_planning1/chem.py) is a working example.
+
+Saphira is in alpha, and access is by request.
+
+## Set up Saphira
+
+The [Wrench dashboard](https://www.wrenchrobotics.com/dashboard) walks you through the same steps and tracks your progress through them.
+
+### 1. Get access
+
+[Request access to Saphira](https://www.wrenchrobotics.com/saphira/request-access). Once your request is approved, [sign in](https://www.wrenchrobotics.com/login) with GitHub.
+
+### 2. Install the Saphira GitHub App
+
+On [Dashboard → GitHub](https://www.wrenchrobotics.com/dashboard/github), install the Wrench Saphira app and choose the repositories that will run Saphira. The app posts each run's results to GitHub. It asks for read access to Actions and contents, and write access to Checks and pull requests.
+
+### 3. Set up a repository
+
+From the dashboard, open the setup page for your repository. It gives you a ready-made workflow with your settings filled in. To do the same by hand:
+
+1. Create an API key for the repository on [Dashboard → API keys](https://www.wrenchrobotics.com/dashboard/keys). Copy it right away: it is not shown again.
+2. In your repository, go to **Settings → Secrets and variables → Actions** and add the key as a secret named `WRENCH_SAPHIRA_API_KEY`.
+3. Add this workflow as `.github/workflows/saphira.yml`, and change `path-to-example-run` to your production script:
 
 ```yaml
 name: Saphira
@@ -34,86 +59,38 @@ jobs:
           api-key: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
 ```
 
-The `push` trigger records results for your default branch (change `main` if yours has another name). With the Saphira GitHub App, each pull request's report is compared with that branch's results at the point where the pull request branched off, so without it there is nothing to compare with.
+If your default branch is not `main`, change it under `push`.
 
-Without a `WRENCH_SAPHIRA_API_KEY` secret, the run uses local cases only and the workflow posts its own PR comment. Add the secret to include corner cases from the Wrench API (`api-url`, `https://api.wrenchrobotics.com` by default) and to have the Saphira GitHub App post the results; see [Results from the Saphira GitHub App](#results-from-the-saphira-github-app). Optional inputs include:
+### 4. See your first report
 
-```yaml
-          kinds: productions,casts   # also try alternative actors
-          fanout-source: local       # never contact the service
-```
+1. Commit the workflow to your default branch. That run records the results that pull requests are compared with.
+2. Open a pull request. When the run finishes, the Saphira GitHub App adds a **Saphira Results** Check and a comment to the pull request, each linking to the full report.
 
-Every run includes the baseline: your production as written. `kinds` adds more cases: `productions` runs the related productions with your current cast, and `casts` runs your production with each alternative actor. It applies to local cases and to the cases requested from the Wrench API. When it is empty, local cases include `productions`, and the API returns every kind your key allows. Requesting a kind your key does not allow fails the run with the missing scope.
+Every report is also listed on [Dashboard → Saphira reports](https://www.wrenchrobotics.com/dashboard/saphira/reports).
 
-`fanout-source` is `remote-with-fallback` by default. `local` never contacts the service. `remote` fails if the service cannot provide cases. `remote-with-fallback` uses local cases when the service is unreachable or returns a retryable server error, and when no token is available (as on pull requests from forks, where secrets are withheld). It still fails for invalid responses and authorization errors, including a `kinds` entry the key does not permit; the error names the missing scope. Remote cases are deduplicated against local cases by `case-id` and retain their source in result JSON.
+## If no report appears
 
-When a workflow runs `saphira-run` more than once, for example in a matrix, give each run its own `name`, such as `name: ${{ matrix.name }}`. It names the results' Check, PR comment section, and artifact. With `name: Motion Planning`, the heading is `Saphira Results (Motion Planning)` and the artifact is `saphira-results-motion-planning`.
+Open the workflow run and read its job summary. When the app cannot post, Saphira posts its own pull request comment instead, and the summary says why:
 
-The action writes its files under `$RUNNER_TEMP`, never into your checkout, and uploads them as that artifact. Later steps can read them from the `results-directory` (result JSON files) and `restaged-directory` (restaged productions) outputs.
+| The summary says | What to do |
+|---|---|
+| No API key | Add the `WRENCH_SAPHIRA_API_KEY` secret (step 3). |
+| No OIDC token | Add `id-token: write` to the workflow's `permissions`. |
+| The key was refused | Check that the key is active and was created for this repository. Create a new one if needed. |
+| The app is not installed | Install the app on this repository (step 2). The summary includes the install link. |
+| The installation is not connected | Connect it on [Dashboard → GitHub](https://www.wrenchrobotics.com/dashboard/github), signed in to the account that owns the key. |
 
-Two environment variables help when debugging, and can be set in the workflow's or step's `env`: `SAPHIRA_PROGRESS` (`auto` by default, or `bar`, `lines`, or `none`) and `SAPHIRA_FANOUT_TIMEOUT_SECONDS` (the timeout of the request to the Wrench API, `10` by default).
+Pull requests from forks get no secrets or OIDC tokens. They run local cases only, and the results stay in the job summary.
 
-### Keys tied to a repository
+A case that **fails** fails the run. Its error output is in the job log, under the case's progress line. A case that **times out** is reported but does not fail the run. See [Results and reports](docs/results.md) for details.
 
-A Wrench API key can be tied to one GitHub repository, so that a leaked key is useless anywhere else. The Wrench API accepts such a key only together with a GitHub Actions OIDC token proving that the request comes from a workflow in that repository. `saphira-run` requests one and sends it in the `Wrench-GitHub-OIDC` header whenever the workflow grants `id-token: write`, as in the example above. Keys without a repository work with or without it, so keep the permission in every workflow: switching to a repository key then only means replacing the secret.
+## More documentation
 
-The token's audience is the scheme and host of `api-url` (`https://api.wrenchrobotics.com` by default), so a token requested for one Wrench environment does not work in another. Pull requests from forks get neither secrets nor OIDC tokens, so they use local cases. If GitHub fails to provide a token, the run continues without it and the job summary says why; a key tied to a repository is then refused.
+- [Configuration](docs/configuration.md): every input and output of `saphira-run`, running it more than once in a workflow, and debugging settings.
+- [Results and reports](docs/results.md): case outcomes, logs and artifacts, and how reports are posted.
+- [Security](docs/security.md): API keys tied to a repository, OIDC tokens, and what Saphira sends to the Wrench API.
+- [`saphira-collate-comment` (deprecated)](docs/saphira-collate-comment.md).
 
-The `oidc-status` output reports what happened: `sent`, `unavailable` (no permission), `failed`, or `not-requested` (no remote request was made). Neither the token nor the API key is ever printed.
+## License
 
-The action passes the API key to `saphira-run-facade` and `saphira-submit` through the `WRENCH_API_KEY` environment variable, never on the command line. Both CLIs read it only from there.
-
-The facade POSTs the detected parent and production, the local case IDs, and the `GITHUB_REPOSITORY`, `GITHUB_SHA`, `GITHUB_RUN_ID`, and `GITHUB_RUN_ATTEMPT` values so the service can choose relevant cases.
-
-**Remote cases are data, never code.** A remote actor case only names a registered actor (`{"cast_call_index": 0, "actor": "bidirectional_rrt"}`), and Saphira expands it from the actor registry of the installed `saphira` version. A remote case that carries `import_statements`, `instantiation_code`, `variable_name`, or `method_to_call` fails the run under every fanout source. A remote actor this version does not know about, or one that does not fit the production's cast call, is skipped with a warning in the job summary.
-
-### Case outcomes and timeouts
-
-Each case ends with one of three statuses:
-
-- `passed`: the case exited with code 0.
-- `timed-out`: the case ran past `run-timeout-seconds` (900 by default) and exited with code 124. This usually means the algorithm is too expensive for the task, not that Saphira broke, so it is a simulation outcome rather than a failure: it is reported but does not fail the run.
-- `failed`: any other exit code, or a worker that crashed.
-
-Every result JSON records the case's `status`, its `exit_code`, and a `simulation_outcome` object describing what the simulation did, as opposed to whether Saphira could run it. For now it only says whether the case timed out (`{"timed_out": true}`); it replaces the top-level `timed_out` field of earlier versions.
-
-Each case's stdout and stderr are saved as `stdout.log` and `stderr.log` next to its restaged file in the uploaded artifact, and the result JSON records their paths as `stdout_log` and `stderr_log`. When a case does not pass, the result JSON also keeps the last 40 lines of stderr as `stderr_tail`, and the job log prints them in a collapsible group under the case's progress line.
-
-Each case runs with its restaged directory as its working directory, so files a production writes to relative paths (such as brom_drake's `./brom` watcher output) stay separate from cases running at the same time. The workspace stays on `PYTHONPATH`, so the example can still import modules from the repository, but paths it opens relative to the working directory now resolve inside the case's restaged directory. The `brom` watcher output is not uploaded with the artifact.
-
-The `failed-count` output counts only `failed` cases, and the action fails when it is not zero. The `timed-out-count` output counts `timed-out` cases, which also appear in the job summary table and totals (`Totals: 3 passed, 1 timed out, 0 failed`) and as a notice on the run.
-
-### Results from the Saphira GitHub App
-
-With an API key, `saphira-run` submits its results to the Wrench API (`POST /v1/saphira/reports`), and the Saphira GitHub App posts them: a GitHub Check on the commit for every run, and a PR comment for pull request runs. Rerunning a job updates both in place. For this to work:
-
-1. Install the Saphira GitHub App on the repository and connect the installation to your Wrench account on [`/dashboard/github`](https://www.wrenchrobotics.com/dashboard/github).
-2. Create a Wrench API key for the repository and add it as the `WRENCH_SAPHIRA_API_KEY` secret.
-3. Grant `id-token: write`, as in the example above. The API accepts a report only with both the key and a GitHub Actions OIDC token, which proves the repository, run, and commit it comes from.
-
-The `report-mode` input decides what happens:
-
-- `auto` (default) submits the report. When the app cannot post, the workflow posts its own PR comment instead, and the job summary says why: no API key, no OIDC token (pull requests from forks get neither), the key is refused, the app is not installed (with the install link), the key's account has not connected the installation (with the dashboard link), or the API is unreachable.
-- `app` submits the report and fails the job when the app cannot post.
-- `none` posts nothing. The results are still in the job summary and the uploaded artifacts.
-
-The `report-status` output is `posted`, `fallback`, `skipped`, or `failed`, and `report-url` links the run's report page on the Wrench website, or, where the API does not link that page, the app's PR comment, or for other events its Check. The job still passes or fails on the results themselves, whatever the report mode.
-
-`api-url` chooses the Wrench environment and so which app posts: `https://api.wrenchrobotics.com` posts as Wrench Saphira, and `https://api-staging.wrenchrobotics.com` as Wrench Saphira [Staging]. Each needs a key from its own environment.
-
-For external consumers, pin the action to a release tag and commit SHA rather than `main` once releases are available.
-
-## Deprecated: `saphira-collate-comment`
-
-`saphira-run` reports its own results, so `saphira-collate-comment` is deprecated and will be removed when the workflow's own PR comment is (see [#10](https://github.com/WrenchRobotics/saphira/issues/10)). Until then it still collates result JSON files into a section of the shared PR comment, and warns on every run:
-
-```yaml
-- uses: WrenchRobotics/saphira/.github/actions/saphira-collate-comment@main
-  with:
-    results-directories: productions/matrix-results
-    section-key: matrix-results
-    section-heading: Matrix Production Results
-    github-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-Give each invocation in a workflow its own `section-key`, so results do not overwrite each other.
+[MIT](LICENSE)
