@@ -221,9 +221,11 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ steps.names.outputs.artifact-name }}
+        # Each case's brom_drake watcher output (tens of MB of plots) stays out of the artifact.
         path: |
           ${{ steps.names.outputs.results-directory }}
           ${{ steps.names.outputs.restaged-directory }}
+          !${{ steps.names.outputs.restaged-directory }}/*/brom
 
     - name: Collate facade results
       id: collate

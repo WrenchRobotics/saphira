@@ -44,6 +44,10 @@ _GITHUB_CONTEXT_ENV = {
     "run_id": "GITHUB_RUN_ID",
     "run_attempt": "GITHUB_RUN_ATTEMPT",
 }
+# How much of a case's stderr the result JSON and the job log keep when the case does not pass.
+# The full output stays in the case's log files in the artifact.
+STDERR_TAIL_LINES = 40
+STDERR_TAIL_CHARACTERS = 4000
 
 
 def locate_example(path: Path) -> Path:
@@ -61,11 +65,46 @@ def _case_comparison_metadata(case: dict[str, str]) -> dict | None:
     return json.loads(raw) if raw else None
 
 
+def _decode_output(output: str | bytes | None) -> str:
+    # TimeoutExpired carries bytes even when the process was run with text=True.
+    if isinstance(output, bytes):
+        return output.decode(errors="replace")
+    return output or ""
+
+
+def stderr_tail(stderr: str) -> str:
+    """Return the last lines of a case's stderr, short enough for a result JSON and a job log."""
+    tail = "\n".join(stderr.rstrip().splitlines()[-STDERR_TAIL_LINES:])
+    if len(tail) > STDERR_TAIL_CHARACTERS:
+        tail = tail[-STDERR_TAIL_CHARACTERS:]
+    return tail
+
+
+def _write_case_logs(output_dir: Path, stdout: str, stderr: str) -> dict[str, str]:
+    stdout_log = output_dir / "stdout.log"
+    stderr_log = output_dir / "stderr.log"
+    stdout_log.write_text(stdout)
+    stderr_log.write_text(stderr)
+    return {"stdout_log": str(stdout_log), "stderr_log": str(stderr_log)}
+
+
+def _case_environment() -> dict[str, str]:
+    # Each case runs in its own restaged directory, so that files a production writes relative
+    # to the working directory (brom_drake's ./brom watcher output, which it deletes and recreates
+    # on startup) are not shared with cases running at the same time. `python -m` would otherwise
+    # put that directory on sys.path instead of the workspace, so keep the workspace importable.
+    environment = dict(os.environ)
+    paths = [os.getcwd(), environment.get("PYTHONPATH", "")]
+    environment["PYTHONPATH"] = os.pathsep.join(path for path in paths if path)
+    return environment
+
+
 def _run_case(case: dict[str, str], target_file: str, restaged_root: str, results_root: str,
               run_timeout_seconds: int, request_id: str | None = None) -> dict[str, str]:
     case_id = case["case-id"]
-    result_path = Path(results_root) / f"{case_id}.json"
-    output_dir = Path(restaged_root) / case_id
+    result_path = (Path(results_root) / f"{case_id}.json").resolve()
+    output_dir = (Path(restaged_root) / case_id).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
         "-m",
@@ -92,11 +131,16 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
             capture_output=True,
             text=True,
             timeout=run_timeout_seconds,
+            cwd=output_dir,
+            env=_case_environment(),
         )
         exit_code = completed.returncode
-    except subprocess.TimeoutExpired:
+        stdout, stderr = completed.stdout, completed.stderr
+    except subprocess.TimeoutExpired as timeout:
         exit_code = 124
+        stdout, stderr = _decode_output(timeout.stdout), _decode_output(timeout.stderr)
     duration = time.monotonic() - started
+    log_files = _write_case_logs(output_dir, stdout, stderr)
     payload = finalize_result_payload(
         result_path,
         case["production-class"],
@@ -109,12 +153,17 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
     payload["case_id"] = case_id
     payload["fanout_source"] = case.get("source", "local")
     payload["fanout_request_id"] = request_id
+    payload.update(log_files)
+    tail = stderr_tail(stderr) if payload["status"] != "passed" else ""
+    if tail:
+        payload["stderr_tail"] = tail
     result_path.write_text(json.dumps(payload, indent=2))
     return {
         "case-id": case_id,
         "result-json-path": str(result_path),
         "exit-code": str(exit_code),
         "status": payload["status"],
+        "stderr-tail": tail,
     }
 
 
@@ -172,6 +221,19 @@ class ProgressReporter:
                 f"{result['case-id']} {status}",
                 flush=True,
             )
+        tail = result.get("stderr-tail")
+        if tail and self.mode != "none":
+            self._write_stderr_tail(result["case-id"], tail)
+
+    def _write_stderr_tail(self, case_id: str, tail: str) -> None:
+        if os.environ.get("GITHUB_ACTIONS"):
+            text = f"::group::{case_id} stderr (last lines)\n{tail}\n::endgroup::"
+        else:
+            text = f"--- {case_id} stderr (last lines) ---\n{tail}"
+        if self.bar is not None:
+            self.bar.write(text)
+        else:
+            print(text, flush=True)
 
     def close(self) -> None:
         if self.bar is not None:
