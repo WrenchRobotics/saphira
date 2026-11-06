@@ -81,7 +81,6 @@ def stderr_tail(stderr: str) -> str:
 
 
 def _write_case_logs(output_dir: Path, stdout: str, stderr: str) -> dict[str, str]:
-    output_dir.mkdir(parents=True, exist_ok=True)
     stdout_log = output_dir / "stdout.log"
     stderr_log = output_dir / "stderr.log"
     stdout_log.write_text(stdout)
@@ -89,11 +88,23 @@ def _write_case_logs(output_dir: Path, stdout: str, stderr: str) -> dict[str, st
     return {"stdout_log": str(stdout_log), "stderr_log": str(stderr_log)}
 
 
+def _case_environment() -> dict[str, str]:
+    # Each case runs in its own restaged directory, so that files a production writes relative
+    # to the working directory (brom_drake's ./brom watcher output, which it deletes and recreates
+    # on startup) are not shared with cases running at the same time. `python -m` would otherwise
+    # put that directory on sys.path instead of the workspace, so keep the workspace importable.
+    environment = dict(os.environ)
+    paths = [os.getcwd(), environment.get("PYTHONPATH", "")]
+    environment["PYTHONPATH"] = os.pathsep.join(path for path in paths if path)
+    return environment
+
+
 def _run_case(case: dict[str, str], target_file: str, restaged_root: str, results_root: str,
               run_timeout_seconds: int, request_id: str | None = None) -> dict[str, str]:
     case_id = case["case-id"]
-    result_path = Path(results_root) / f"{case_id}.json"
-    output_dir = Path(restaged_root) / case_id
+    result_path = (Path(results_root) / f"{case_id}.json").resolve()
+    output_dir = (Path(restaged_root) / case_id).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
         "-m",
@@ -120,6 +131,8 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
             capture_output=True,
             text=True,
             timeout=run_timeout_seconds,
+            cwd=output_dir,
+            env=_case_environment(),
         )
         exit_code = completed.returncode
         stdout, stderr = completed.stdout, completed.stderr

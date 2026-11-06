@@ -73,6 +73,8 @@ Every result JSON records the case's `status`, its `exit_code`, and a `simulatio
 
 Each case's stdout and stderr are saved as `stdout.log` and `stderr.log` next to its restaged file in the uploaded artifact, and the result JSON records their paths as `stdout_log` and `stderr_log`. When a case does not pass, the result JSON also keeps the last 40 lines of stderr as `stderr_tail`, and the job log prints them in a collapsible group under the case's progress line.
 
+Each case runs with its restaged directory as its working directory, so files a production writes to relative paths (such as brom_drake's `./brom` watcher output) stay separate from cases running at the same time. The workspace stays on `PYTHONPATH`, so the example can still import modules from the repository, but paths it opens relative to the working directory now resolve inside the case's restaged directory. The `brom` watcher output is not uploaded with the artifact.
+
 The `failed-count` output counts only `failed` cases, and the action fails when it is not zero. The `timed-out-count` output counts `timed-out` cases, which also appear in the job summary table and totals (`Totals: 3 passed, 1 timed out, 0 failed`) and as a notice on the run.
 
 ### Results from the Saphira GitHub App

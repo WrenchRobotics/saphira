@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import unittest
 from contextlib import redirect_stdout
@@ -74,6 +75,29 @@ class RunCaseTest(unittest.TestCase):
         self.assertEqual(result["exit-code"], "124")
         self.assertEqual(logs, {"stdout_log": "step 1\n", "stderr_log": "still planning\n"})
         self.assertEqual(payload["stderr_tail"], "still planning")
+
+    def test_case_runs_in_its_own_directory_with_the_workspace_importable(self):
+        previous = Path.cwd()
+        with TemporaryDirectory() as directory:
+            workspace = Path(directory).resolve()
+            with mock.patch("saphirapy.facade.subprocess.run") as fake_run, \
+                    mock.patch.dict("os.environ", {"PYTHONPATH": "/extra"}):
+                fake_run.return_value = completed(0)
+                os.chdir(workspace)
+                try:
+                    _run_case(CASE, "chem.py", "restaged", "results", 300)
+                finally:
+                    os.chdir(previous)
+
+            command = fake_run.call_args.args[0]
+            options = fake_run.call_args.kwargs
+            output_dir = workspace / "restaged" / CASE["case-id"]
+            self.assertEqual(options["cwd"], output_dir)
+            self.assertEqual(options["env"]["PYTHONPATH"], f"{workspace}{os.pathsep}/extra")
+            # Relative roots are resolved before the working directory changes.
+            self.assertEqual(command[command.index("--output-dir") + 1], str(output_dir))
+            self.assertEqual(command[command.index("--result-json") + 1],
+                             str(workspace / "results" / f"{CASE['case-id']}.json"))
 
     def test_timed_out_case_without_output(self):
         _result, payload, logs = self.run_case(subprocess.TimeoutExpired(cmd=[], timeout=300))
