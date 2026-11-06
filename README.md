@@ -71,6 +71,8 @@ Each case ends with one of three statuses:
 
 Every result JSON records the case's `status`, its `exit_code`, and a `simulation_outcome` object describing what the simulation did, as opposed to whether Saphira could run it. For now it only says whether the case timed out (`{"timed_out": true}`); it replaces the top-level `timed_out` field of earlier versions.
 
+Each case's stdout and stderr are saved as `stdout.log` and `stderr.log` next to its restaged file in the uploaded artifact, and the result JSON records their paths as `stdout_log` and `stderr_log`. When a case does not pass, the result JSON also keeps the last 40 lines of stderr as `stderr_tail`, and the job log prints them in a collapsible group under the case's progress line.
+
 The `failed-count` output counts only `failed` cases, and the action fails when it is not zero. The `timed-out-count` output counts `timed-out` cases, which also appear in the job summary table and totals (`Totals: 3 passed, 1 timed out, 0 failed`) and as a notice on the run.
 
 ### Results from the Saphira GitHub App
