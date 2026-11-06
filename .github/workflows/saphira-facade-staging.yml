@@ -3,7 +3,11 @@ name: Saphira Facade Staging Run
 # Integration check against the staging backend. Advisory: a failure can come from saphira,
 # the backend, or staging being down, so this should not be a required check.
 
-on: [pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
