@@ -1,6 +1,10 @@
-name: Saphira Facade Local Run
+name: Saphira Run (Local)
 
-on: [pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,9 +17,9 @@ env:
   PYTHON_VERSION: '3.14'
 
 jobs:
-  run-facade:
+  saphira-run:
     runs-on: ubuntu-latest
-    name: Run local-only Saphira facade (${{ matrix.name }})
+    name: Run Saphira with local fanout (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
@@ -28,7 +32,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run facade with local fanout
+      - name: Run Saphira with local fanout
         uses: ./.github/actions/saphira-run
         with:
           path-to-example-run: ${{ matrix.path-to-example-run }}

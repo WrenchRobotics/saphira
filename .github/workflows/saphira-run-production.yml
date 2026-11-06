@@ -1,9 +1,15 @@
-name: Saphira Facade Staging Run
+name: Saphira Run (Production)
 
-# Integration check against the staging backend. Advisory: a failure can come from saphira,
-# the backend, or staging being down, so this should not be a required check.
+# Integration check against the production backend. Advisory: a failure can come from saphira,
+# the backend, or production being down, so this should not be a required check.
 
-on: [pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,45 +21,45 @@ permissions:
 
 env:
   PYTHON_VERSION: '3.14'
-  API_BASE: https://api-staging.wrenchrobotics.com
+  API_BASE: https://api.wrenchrobotics.com
 
 jobs:
-  run-facade:
+  saphira-run:
     # Fork PRs do not receive secrets, so only run PRs opened from this repository.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    name: Run Saphira facade with staging fanout
+    name: Run Saphira with production fanout
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check staging backend health
+      - name: Check production backend health
         run: curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 10 "$API_BASE/healthz"
 
-      - name: Run facade with remote fanout
-        id: facade
+      - name: Run Saphira with remote fanout
+        id: saphira
         uses: ./.github/actions/saphira-run
         with:
           path-to-example-run: src/examples/motion_planning1/chem.py
-          # No fallback: an unreachable staging backend should fail this check, not pass as a local run.
+          # No fallback: an unreachable production backend should fail this check, not pass as a local run.
           fanout-source: remote
           api-url: ${{ env.API_BASE }}
-          api-key: ${{ secrets.WRENCH_SAPHIRA_STAGING_API_KEY }}
-          # Wrench Saphira [Staging] must post the results; a workflow comment in its place fails the check.
+          api-key: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
+          # The Saphira GitHub App must post the results; a workflow comment in its place fails the check.
           report-mode: app
           kinds: productions,casts
           max-concurrency: '2'
           run-timeout-seconds: '300'
           python-version: ${{ env.PYTHON_VERSION }}
-          name: Staging
+          name: Production
 
       - name: Verify remote fanout
         if: ${{ !cancelled() }}
         env:
-          REMOTE_STATUS: ${{ steps.facade.outputs.remote-status }}
-          OIDC_STATUS: ${{ steps.facade.outputs.oidc-status }}
-          FANOUT_REQUEST_ID: ${{ steps.facade.outputs.fanout-request-id }}
-          REMOTE_CASE_COUNT: ${{ steps.facade.outputs.remote-case-count }}
+          REMOTE_STATUS: ${{ steps.saphira.outputs.remote-status }}
+          OIDC_STATUS: ${{ steps.saphira.outputs.oidc-status }}
+          FANOUT_REQUEST_ID: ${{ steps.saphira.outputs.fanout-request-id }}
+          REMOTE_CASE_COUNT: ${{ steps.saphira.outputs.remote-case-count }}
         run: |
           failed=0
           if [ "$REMOTE_STATUS" != 'available' ]; then
