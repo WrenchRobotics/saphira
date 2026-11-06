@@ -74,7 +74,7 @@ Each environment needs an API key from its own website.
 
 ## Pinning a version
 
-The examples use `saphira-run@main`, which follows the latest changes. To control when your CI picks up changes, pin a release tag such as `@v0.1.0`, or a commit SHA.
+The examples use `saphira-run@v0`, which moves to each new `v0.x.y` release, so you get fixes and new features without changes that break your workflow. To control exactly when your CI picks up changes, pin a release tag such as `@v0.1.0`, or a commit SHA. [RELEASING.md](../RELEASING.md) explains how the tags are managed.
 
 ## Debugging
 

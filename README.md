@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: WrenchRobotics/saphira/.github/actions/saphira-run@main
+      - uses: WrenchRobotics/saphira/.github/actions/saphira-run@v0
         with:
           path-to-example-run: path/to/your_production.py
           api-key: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
