@@ -11,7 +11,11 @@ Copy this into `.github/workflows/saphira.yml` and change `path-to-example-run`.
 ```yaml
 name: Saphira
 
-on: [pull_request, workflow_dispatch]
+on:
+  pull_request:
+  push:
+    branches: [main]  # pull requests are compared with main's latest results
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,6 +33,8 @@ jobs:
           path-to-example-run: path/to/your_production.py
           api-key: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
 ```
+
+The `push` trigger records results for your default branch (change `main` if yours has another name). With the Saphira GitHub App, each pull request's report is compared with that branch's results at the point where the pull request branched off, so without it there is nothing to compare with.
 
 Without a `WRENCH_SAPHIRA_API_KEY` secret, the run uses local cases only and the workflow posts its own PR comment. Add the secret to include corner cases from the Wrench API (`api-url`, `https://api.wrenchrobotics.com` by default) and to have the Saphira GitHub App post the results; see [Results from the Saphira GitHub App](#results-from-the-saphira-github-app). Optional inputs include:
 
