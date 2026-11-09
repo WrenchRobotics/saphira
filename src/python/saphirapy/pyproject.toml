@@ -7,19 +7,17 @@ name = "saphirapy"
 version = "0.0.0+placeholder"
 description = "A python library to assist with the benchmarking and testing of Drake-based robotics systems."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 authors = [
     {name = "Kwesi Rutledge", email = "thesolitaryecrivain@gmail.com"}
 ]
 keywords = ["drake", "robotics", "testing", "logging"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "brom_drake>0.5.5",
+    "brom_drake>=1.0.1,<2",
     "drake==1.56.0",
     "meshcat==0.3.2",
     "loguru==0.7.3",

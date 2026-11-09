@@ -15,7 +15,7 @@ The `saphira-run` action is the single entry point to Saphira. It detects the pr
 | `name` | empty | Names these results. Needed when a workflow runs `saphira-run` more than once. See [Running more than once](#running-saphira-run-more-than-once). |
 | `run-timeout-seconds` | `900` | How long a case may run before it is stopped and reported as timed out. |
 | `max-concurrency` | empty | How many cases run at the same time. |
-| `python-version` | `3.14` | `3.12`, `3.13`, or `3.14`, the versions Drake publishes wheels for. |
+| `python-version` | `3.14` | Must be `3.14`, the only version that both brom_drake 1.x and Drake support. |
 | `github-token` | `${{ github.token }}` | Used only for the workflow's own PR comment, when the app does not post. |
 
 ## Outputs
