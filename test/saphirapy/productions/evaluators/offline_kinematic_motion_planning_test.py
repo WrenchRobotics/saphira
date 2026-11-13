@@ -128,8 +128,18 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
         np.testing.assert_array_equal(loaded_configuration_history, self.configuration_history)
 
     def test_calculate_cartesian_space_length_of_plan_is_greater_than_50cm(self):
-        # Use the plan generated in setUp and ensure the Cartesian path is meaningful.
-        cartesian_length_m = self.evaluator.calculate_cartesian_space_length_of_plan(
+        # The arm moves about 8 cm per simulated second, so the short run from setUp
+        # cannot cover 50 cm. Simulate long enough for the arm to really travel that far.
+        evaluator, _, production = self.create_dummy_offline_kinematic_motion_planning_evaluator(
+            T_sim=10.0,
+        )
+        self.addCleanup(
+            shutil.rmtree,
+            production.watcher.options.base_directory,
+            ignore_errors=True,
+        )
+
+        cartesian_length_m = evaluator.calculate_cartesian_space_length_of_plan(
             self.configuration_history
         )
 

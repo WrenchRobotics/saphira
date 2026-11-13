@@ -42,7 +42,7 @@ inputs:
     required: false
     default: '900'
   python-version:
-    description: 3.12, 3.13, or 3.14, the versions Drake publishes wheels for.
+    description: Must be 3.14, the only version that both brom_drake 1.x and Drake support.
     required: false
     default: '3.14'
   name:
@@ -128,9 +128,9 @@ runs:
             *) refuse "kinds can contain productions and casts, not '$kind'." ;;
           esac
         done
-        # Drake only publishes wheels for these versions.
-        if ! [[ "$PYTHON_VERSION" =~ ^3\.1[234](\.[0-9]+)?$ ]]; then
-          refuse "python-version must be 3.12, 3.13, or 3.14, as Drake requires, not '$PYTHON_VERSION'."
+        # brom_drake 1.x needs at least 3.14, and Drake publishes wheels up to 3.14.
+        if ! [[ "$PYTHON_VERSION" =~ ^3\.14(\.[0-9]+)?$ ]]; then
+          refuse "python-version must be 3.14, as brom_drake 1.x requires, not '$PYTHON_VERSION'."
         fi
         if ! [[ "$RUN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
           refuse "run-timeout-seconds must be a whole number of seconds, not '$RUN_TIMEOUT_SECONDS'."
@@ -187,8 +187,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        pip install brom_drake
         # Install from this action's own checkout so the action works from any repository.
+        # saphirapy's own requirements choose the supported brom_drake version.
         pip install "$GITHUB_ACTION_PATH/../../../src/python/saphirapy"
         # github-script steps see another action's path, so they get this one's from here.
         echo "action-path=$GITHUB_ACTION_PATH" >> "$GITHUB_OUTPUT"

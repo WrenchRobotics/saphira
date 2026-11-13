@@ -26,8 +26,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Drake only publishes wheels for these versions.
-        python-version: ['3.12', '3.13', '3.14']
+        # The only version that both brom_drake 1.x and Drake support.
+        python-version: ['3.14']
 
     steps:
       - name: Checkout

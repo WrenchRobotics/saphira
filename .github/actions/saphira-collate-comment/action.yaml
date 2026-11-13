@@ -9,7 +9,7 @@ inputs:
     description: Newline-separated directories containing per-run result JSON files (searched recursively).
     required: true
   python-version:
-    description: Python version to use.
+    description: Must be 3.14, the only version that both brom_drake 1.x and Drake support.
     required: false
     default: '3.14'
   detected-parent:
@@ -49,8 +49,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        pip install brom_drake
         # Install from this action's own checkout so the action works from any repository.
+        # saphirapy's own requirements choose the supported brom_drake version.
         pip install "$GITHUB_ACTION_PATH/../../../src/python/saphirapy"
         # The scripts live with saphira-run.
         echo "scripts-path=$GITHUB_ACTION_PATH/../saphira-run" >> "$GITHUB_OUTPUT"
