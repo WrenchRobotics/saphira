@@ -4,12 +4,13 @@ from brom_drake.productions.all import (
     ShelfPlanning1,
     ChemLab1,
     ChemLab2,
+    CornellTech1,
 )
 
 
 RELATED_PRODUCTIONS = {
     KinematicMotionPlanningProduction: [ChemLab1, ShelfPlanning1],
-    OfflineDynamicMotionPlanningProduction: [ChemLab2],
+    OfflineDynamicMotionPlanningProduction: [ChemLab2, CornellTech1],
 }
 
 ALL_SUPPORTED_PRODUCTIONS = set()

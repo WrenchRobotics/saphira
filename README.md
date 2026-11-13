@@ -9,8 +9,8 @@ Results appear as a GitHub Check and a pull request comment, with a link to a fu
 You need:
 
 - A GitHub repository where you can add workflows and Actions secrets.
-- A Python script in that repository that builds and simulates a brom_drake production. Saphira currently supports `ChemLab1` and `ShelfPlanning1` (kinematic motion planning) and `ChemLab2` (offline dynamic motion planning). [`src/examples/motion_planning1/chem.py`](src/examples/motion_planning1/chem.py) is a working example.
-- A script that works on Python 3.14 with brom_drake 1.0.1 or a later 1.x release. Saphira installs both for you when it runs.
+- A Python script in that repository that builds and simulates a brom_drake production. Saphira currently supports `ChemLab1` and `ShelfPlanning1` (kinematic motion planning) and `ChemLab2` and `CornellTech1` (offline dynamic motion planning). [`src/examples/motion_planning1/chem.py`](src/examples/motion_planning1/chem.py) is a working example.
+- A script that works on Python 3.14 with brom_drake 1.0.3 or a later 1.x release. Saphira installs both for you when it runs.
 
 Saphira is in alpha, and access is by request.
 
