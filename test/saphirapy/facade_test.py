@@ -7,6 +7,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import mock
 
 from saphirapy.facade import (
@@ -14,6 +15,7 @@ from saphirapy.facade import (
     STDERR_TAIL_LINES,
     ProgressReporter,
     _run_case,
+    run_fanout,
     stderr_tail,
 )
 
@@ -196,6 +198,44 @@ class ProgressReporterTest(unittest.TestCase):
             progress.heartbeat("c", 120)
 
         self.assertEqual(output.getvalue(), "")
+
+
+class RunFanoutTest(unittest.TestCase):
+    def test_passes_progress_callbacks_to_workers(self):
+        case = {**CASE, "case-id": "case-a"}
+
+        def fake_run_case(case, _target_file, _restaged_root, _results_root, _timeout,
+                          _request_id, on_started, on_heartbeat):
+            on_started(case["case-id"])
+            on_heartbeat(case["case-id"], 60)
+            return {
+                "case-id": case["case-id"],
+                "status": "passed",
+                "exit-code": "0",
+            }
+
+        output = io.StringIO()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch("saphirapy.facade._run_case", side_effect=fake_run_case), \
+                    redirect_stdout(output):
+                results = run_fanout(
+                    root / "chem.py",
+                    SimpleNamespace(cases=[case], request_id=None),
+                    root / "restaged",
+                    root / "results",
+                    max_workers=1,
+                    run_timeout_seconds=300,
+                    progress_mode="lines",
+                )
+
+        self.assertEqual(results[0]["case-id"], "case-a")
+        self.assertEqual(
+            output.getvalue(),
+            "Saphira facade: case-a started\n"
+            "Saphira facade: case-a still running (60s elapsed)\n"
+            "Saphira facade: [1/1] case-a passed\n",
+        )
 
 
 if __name__ == "__main__":

@@ -307,6 +307,7 @@ def run_fanout(
     completed: list[dict[str, str]] = []
     progress = ProgressReporter(len(resolution.cases), progress_mode)
     try:
+        # Cases wait on subprocesses; threads let them report through the shared progress reporter.
         with ThreadPoolExecutor(max_workers=worker_count) as pool:
             futures = {
                 pool.submit(
