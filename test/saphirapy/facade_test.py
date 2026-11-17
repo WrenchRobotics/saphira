@@ -2,6 +2,7 @@ import io
 import json
 import os
 import subprocess
+import threading
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -105,6 +106,37 @@ class RunCaseTest(unittest.TestCase):
         self.assertEqual(logs, {"stdout_log": "", "stderr_log": ""})
         self.assertNotIn("stderr_tail", payload)
 
+    def test_reports_start_and_heartbeat_while_case_runs(self):
+        heartbeat_received = threading.Event()
+        events = []
+
+        def fake_run(*_args, **_kwargs):
+            events.append("run")
+            self.assertTrue(heartbeat_received.wait(timeout=1))
+            return completed(0)
+
+        def on_heartbeat(case_id, elapsed):
+            events.append(("heartbeat", case_id, elapsed))
+            heartbeat_received.set()
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch("saphirapy.facade.subprocess.run", side_effect=fake_run), \
+                    mock.patch("saphirapy.facade.HEARTBEAT_INTERVAL_SECONDS", 0.001):
+                _run_case(
+                    CASE,
+                    "chem.py",
+                    str(root / "restaged"),
+                    str(root / "results"),
+                    300,
+                    on_started=lambda case_id: events.append(("started", case_id)),
+                    on_heartbeat=on_heartbeat,
+                )
+
+        self.assertEqual(events[0], ("started", CASE["case-id"]))
+        self.assertEqual(events[1], "run")
+        self.assertEqual(events[2][0:2], ("heartbeat", CASE["case-id"]))
+
 
 class StderrTailTest(unittest.TestCase):
     def test_keeps_the_last_lines(self):
@@ -142,6 +174,28 @@ class ProgressReporterTest(unittest.TestCase):
         output = self.record({}, {"case-id": "c", "status": "passed", "exit-code": "0"})
 
         self.assertEqual(output, "Saphira facade: [1/1] c passed\n")
+
+    def test_reports_start_and_heartbeats_in_lines_mode(self):
+        output = io.StringIO()
+        with mock.patch.dict("os.environ", {}, clear=True), redirect_stdout(output):
+            progress = ProgressReporter(1, "lines")
+            progress.started("c")
+            progress.heartbeat("c", 120)
+
+        self.assertEqual(
+            output.getvalue(),
+            "Saphira facade: c started\n"
+            "Saphira facade: c still running (120s elapsed)\n",
+        )
+
+    def test_suppresses_start_and_heartbeats_in_none_mode(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            progress = ProgressReporter(1, "none")
+            progress.started("c")
+            progress.heartbeat("c", 120)
+
+        self.assertEqual(output.getvalue(), "")
 
 
 if __name__ == "__main__":
