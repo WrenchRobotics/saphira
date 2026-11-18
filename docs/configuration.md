@@ -82,3 +82,5 @@ Two environment variables help when debugging. Set them in the workflow's or ste
 
 - `SAPHIRA_PROGRESS`: `auto` (default), `bar`, `lines`, or `none`.
 - `SAPHIRA_FANOUT_TIMEOUT_SECONDS`: the timeout of the request to the Wrench API, `10` by default.
+
+In `auto` mode, GitHub Actions uses line progress and reports when each case starts, then every 60 seconds while it is still running. Set `SAPHIRA_PROGRESS` to `none` to suppress these messages.

@@ -5,9 +5,11 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Callable
 
 from tqdm import tqdm
 
@@ -48,6 +50,7 @@ _GITHUB_CONTEXT_ENV = {
 # The full output stays in the case's log files in the artifact.
 STDERR_TAIL_LINES = 40
 STDERR_TAIL_CHARACTERS = 4000
+HEARTBEAT_INTERVAL_SECONDS = 60
 
 
 def locate_example(path: Path) -> Path:
@@ -100,7 +103,9 @@ def _case_environment() -> dict[str, str]:
 
 
 def _run_case(case: dict[str, str], target_file: str, restaged_root: str, results_root: str,
-              run_timeout_seconds: int, request_id: str | None = None) -> dict[str, str]:
+              run_timeout_seconds: int, request_id: str | None = None,
+              on_started: Callable[[str], None] | None = None,
+              on_heartbeat: Callable[[str, int], None] | None = None) -> dict[str, str]:
     case_id = case["case-id"]
     result_path = (Path(results_root) / f"{case_id}.json").resolve()
     output_dir = (Path(restaged_root) / case_id).resolve()
@@ -124,6 +129,16 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
         command.extend(["--actor-variant-json", case["actor-variant-json"]])
 
     started = time.monotonic()
+    heartbeat_stop = threading.Event()
+    heartbeat_thread = None
+    if on_started:
+        on_started(case_id)
+    if on_heartbeat:
+        heartbeat_thread = threading.Thread(
+            target=_report_case_heartbeats,
+            args=(heartbeat_stop, case_id, started, on_heartbeat),
+        )
+        heartbeat_thread.start()
     try:
         completed = subprocess.run(
             command,
@@ -139,6 +154,10 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
     except subprocess.TimeoutExpired as timeout:
         exit_code = 124
         stdout, stderr = _decode_output(timeout.stdout), _decode_output(timeout.stderr)
+    finally:
+        if heartbeat_thread:
+            heartbeat_stop.set()
+            heartbeat_thread.join()
     duration = time.monotonic() - started
     log_files = _write_case_logs(output_dir, stdout, stderr)
     payload = finalize_result_payload(
@@ -165,6 +184,16 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
         "status": payload["status"],
         "stderr-tail": tail,
     }
+
+
+def _report_case_heartbeats(
+    stop: threading.Event,
+    case_id: str,
+    started: float,
+    on_heartbeat: Callable[[str, int], None],
+) -> None:
+    while not stop.wait(HEARTBEAT_INTERVAL_SECONDS):
+        on_heartbeat(case_id, int(time.monotonic() - started))
 
 
 def _record_worker_failure(case: dict[str, str], results_root: Path, error: Exception,
@@ -201,29 +230,51 @@ class ProgressReporter:
         self.mode = mode
         self.total = total
         self.completed = 0
+        self.lock = threading.Lock()
         self.bar = (
             tqdm(total=total, desc="Saphira cast productions", unit="case", dynamic_ncols=False)
             if mode == "bar"
             else None
         )
 
+    def started(self, case_id: str) -> None:
+        if self.mode == "none":
+            return
+        with self.lock:
+            text = f"Saphira facade: {case_id} started"
+            if self.bar is not None:
+                self.bar.write(text)
+            else:
+                print(text, flush=True)
+
+    def heartbeat(self, case_id: str, elapsed_seconds: int) -> None:
+        if self.mode == "none":
+            return
+        with self.lock:
+            text = f"Saphira facade: {case_id} still running ({elapsed_seconds}s elapsed)"
+            if self.bar is not None:
+                self.bar.write(text)
+            else:
+                print(text, flush=True)
+
     def record(self, result: dict[str, str]) -> None:
-        self.completed += 1
-        status = result["status"]
-        if status != "passed":
-            status = f"{status} (exit code {result['exit-code']})"
-        if self.bar is not None:
-            self.bar.update(1)
-            self.bar.set_postfix(case=result["case-id"], status=result["status"])
-        elif self.mode == "lines":
-            print(
-                f"Saphira facade: [{self.completed}/{self.total}] "
-                f"{result['case-id']} {status}",
-                flush=True,
-            )
-        tail = result.get("stderr-tail")
-        if tail and self.mode != "none":
-            self._write_stderr_tail(result["case-id"], tail)
+        with self.lock:
+            self.completed += 1
+            status = result["status"]
+            if status != "passed":
+                status = f"{status} (exit code {result['exit-code']})"
+            if self.bar is not None:
+                self.bar.update(1)
+                self.bar.set_postfix(case=result["case-id"], status=result["status"])
+            elif self.mode == "lines":
+                print(
+                    f"Saphira facade: [{self.completed}/{self.total}] "
+                    f"{result['case-id']} {status}",
+                    flush=True,
+                )
+            tail = result.get("stderr-tail")
+            if tail and self.mode != "none":
+                self._write_stderr_tail(result["case-id"], tail)
 
     def _write_stderr_tail(self, case_id: str, tail: str) -> None:
         if os.environ.get("GITHUB_ACTIONS"):
@@ -256,7 +307,8 @@ def run_fanout(
     completed: list[dict[str, str]] = []
     progress = ProgressReporter(len(resolution.cases), progress_mode)
     try:
-        with ProcessPoolExecutor(max_workers=worker_count) as pool:
+        # Cases wait on subprocesses; threads let them report through the shared progress reporter.
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
             futures = {
                 pool.submit(
                     _run_case,
@@ -266,6 +318,8 @@ def run_fanout(
                     str(results_root),
                     run_timeout_seconds,
                     resolution.request_id,
+                    progress.started,
+                    progress.heartbeat,
                 ): case
                 for case in resolution.cases
             }
