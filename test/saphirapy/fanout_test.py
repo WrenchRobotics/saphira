@@ -110,8 +110,8 @@ class FanoutTest(unittest.TestCase):
         opener = RecordingOpener(
             {
                 "cases": [
-                    {"case-id": "production-ChemLab1", "production-class": "ChemLab1"},
-                    {"case-id": "premium-ChemLab1", "production-class": "ChemLab1"},
+                    {"case-id": "production-ChemLab1", "production-class": "ChemLab2"},
+                    {"case-id": "premium-ChemLab2", "production-class": "ChemLab2"},
                 ]
             }
         )
@@ -120,17 +120,95 @@ class FanoutTest(unittest.TestCase):
 
         self.assertEqual(resolution.source, "local-plus-remote")
         self.assertEqual([case["case-id"] for case in resolution.cases], [
-            "production-ChemLab1", "premium-ChemLab1"
+            "production-ChemLab1", "premium-ChemLab2"
         ])
         self.assertEqual(resolution.cases[1]["source"], "remote")
         self.assertEqual(resolution.remote_case_count, 1)
+
+    def test_remote_case_running_a_local_production_is_removed_whatever_its_id(self):
+        # The service names its cases "wrench-<key>"; a production case it shares with the local
+        # fanout must still run once.
+        opener = RecordingOpener(
+            {
+                "cases": [
+                    {"case-id": "wrench-chemlab1", "production-class": "ChemLab1",
+                     "actor-variant-json": "", "source": "wrench"},
+                    {"case-id": "wrench-chemlab1-again", "production-class": "ChemLab1",
+                     "source": "wrench"},
+                ]
+            }
+        )
+
+        resolution = self.resolve(opener)
+
+        self.assertEqual([case["case-id"] for case in resolution.cases], ["production-ChemLab1"])
+        self.assertEqual(resolution.cases[0]["source"], "local")
+        self.assertEqual(resolution.remote_case_count, 0)
+
+    def test_remote_actor_case_matching_a_local_actor_case_is_removed(self):
+        # The resolver expands a reference into exactly the variant the local case carries;
+        # key order in the JSON must not matter.
+        variant = {"cast_call_index": 0, "name": "bidirectional_rrt", "instantiation_code": "x"}
+        local_actor_case = {
+            "case-id": "actor-bidirectional_rrt-0",
+            "production-class": "ChemLab1",
+            "actor-variant-json": json.dumps(variant),
+        }
+        resolver = mock.Mock(return_value=dict(reversed(list(variant.items()))))
+
+        resolution = resolve_fanout(
+            [*self.local_cases, local_actor_case],
+            source="remote",
+            endpoint=ENDPOINT,
+            token=TOKEN,
+            opener=RecordingOpener({"cases": [remote_actor_case()]}),
+            actor_resolver=resolver,
+        )
+
+        self.assertEqual(
+            [case["case-id"] for case in resolution.cases],
+            ["production-ChemLab1", "actor-bidirectional_rrt-0"],
+        )
+        self.assertEqual(resolution.remote_case_count, 0)
+
+    def test_same_actor_on_another_production_or_cast_call_is_not_a_duplicate(self):
+        variant = {"cast_call_index": 0, "name": "bidirectional_rrt", "instantiation_code": "x"}
+        local_actor_case = {
+            "case-id": "actor-bidirectional_rrt-0",
+            "production-class": "ChemLab1",
+            "actor-variant-json": json.dumps(variant),
+        }
+
+        def resolver(cast_call_index, name):
+            return {**variant, "cast_call_index": cast_call_index, "name": name}
+
+        resolution = resolve_fanout(
+            [*self.local_cases, local_actor_case],
+            source="remote",
+            endpoint=ENDPOINT,
+            token=TOKEN,
+            opener=RecordingOpener(
+                {"cases": [
+                    remote_actor_case(**{"production-class": "ChemLab2"}),
+                    remote_actor_case(cast_call_index=1, **{"case-id": "wrench-rrt-1"}),
+                ]}
+            ),
+            actor_resolver=resolver,
+        )
+
+        self.assertEqual(
+            [case["case-id"] for case in resolution.cases],
+            ["production-ChemLab1", "actor-bidirectional_rrt-0", "wrench-bidirectional_rrt",
+             "wrench-rrt-1"],
+        )
+        self.assertEqual(resolution.remote_case_count, 2)
 
     def test_remote_cases_are_counted_whatever_the_service_labels_them(self):
         opener = RecordingOpener(
             {
                 "cases": [
-                    {"case-id": "wrench-a", "production-class": "ChemLab1", "source": "wrench"},
-                    {"case-id": "wrench-b", "production-class": "ChemLab1", "source": "local"},
+                    {"case-id": "wrench-a", "production-class": "ChemLab2", "source": "wrench"},
+                    {"case-id": "wrench-b", "production-class": "ChemLab3", "source": "local"},
                 ]
             }
         )
@@ -548,7 +626,7 @@ class FanoutMockServerTest(unittest.TestCase):
     def test_real_http_server_adds_remote_case(self):
         endpoint, received = self.run_server(
             200,
-            {"cases": [{"case-id": "premium-ChemLab1", "production-class": "ChemLab1"}]},
+            {"cases": [{"case-id": "premium-ChemLab2", "production-class": "ChemLab2"}]},
         )
 
         resolution = resolve_fanout(
