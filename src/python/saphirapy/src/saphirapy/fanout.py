@@ -1,13 +1,15 @@
 """Fanout contracts and optional remote fanout augmentation.
 
 Remote cases are data, never code. Saphira executes every case on the caller's CI runner, so a
-remote case may only *select* behaviour Saphira already ships: a production class, and for actor
+remote case may only *select* behaviour Saphira already ships: a production class, for actor
 cases a ``{"cast_call_index", "actor"}`` reference that is expanded from the local actor
-registry. A remote case carrying executable fields is rejected outright, even under
-``remote-with-fallback``.
+registry, and for conditions cases a ``scenario-json`` object of parameter values that the
+production's Brom ``Scenario`` declares and checks. A remote case carrying executable fields is
+rejected outright, even under ``remote-with-fallback``.
 """
 
 import json
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -42,6 +44,13 @@ _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,199}$")
 # The service's fanout request ID, echoed back in reports; anything else is ignored.
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 _MAX_ERROR_DETAIL = 300
+# Scenario parameter names are constructor keyword arguments, so plain Python identifiers.
+_PARAMETER_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,99}$")
+# Generous bounds on a scenario's size; Brom's Scenario declarations are far smaller.
+_MAX_SCENARIO_PARAMETERS = 50
+_MAX_SCENARIO_VECTOR_LENGTH = 64
+# The orientation and position keys of a Brom PoseParam value.
+_POSE_KEYS = frozenset({"xyz", "rpy", "wxyz"})
 
 
 class FanoutRemoteError(RuntimeError):
@@ -59,6 +68,15 @@ class RemoteActorUnavailable(LookupError):
 # Expands (cast_call_index, actor name) into a full local actor variant, or raises
 # RemoteActorUnavailable.
 ActorResolver = Callable[[int, str], dict[str, Any]]
+
+
+class ScenarioUnavailable(ValueError):
+    """Remote scenario values that the production's Scenario refuses; the case is skipped."""
+
+
+# Checks (production class name, scenario values) against the production's Brom Scenario and
+# returns the normalized values, or raises ScenarioUnavailable.
+ScenarioValidator = Callable[[str, dict[str, Any]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -82,6 +100,22 @@ def api_endpoint(api_url: str, path: str) -> str:
     return f"{api_url.rstrip('/')}{path}"
 
 
+def _normalize_scenario(raw: Any, index: int) -> str:
+    """Return a case's scenario values as key-sorted JSON, or "" when it sets none."""
+    if raw is None or raw == "":
+        return ""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Fanout case {index} has invalid scenario-json") from error
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f'Fanout case {index} scenario-json must be an object like {{"parameter": value}}'
+        )
+    return json.dumps(raw, sort_keys=True) if raw else ""
+
+
 def normalize_fanout_case(case: dict[str, Any], index: int) -> dict[str, str]:
     """Validate and normalize one local or remote cast-production case."""
     if not isinstance(case, dict):
@@ -94,6 +128,7 @@ def normalize_fanout_case(case: dict[str, Any], index: int) -> dict[str, str]:
     actor_variant = case.get("actor-variant-json", "")
     if not isinstance(actor_variant, str):
         actor_variant = json.dumps(actor_variant, sort_keys=True)
+    scenario = _normalize_scenario(case.get("scenario-json"), index)
 
     case_id = str(case.get("case-id") or case.get("cast-production-name") or "").strip()
     if not case_id:
@@ -108,6 +143,9 @@ def normalize_fanout_case(case: dict[str, Any], index: int) -> dict[str, str]:
         ),
         "artifact-name": str(case.get("artifact-name") or f"matrix-result-{case_id}"),
     }
+    # Only conditions cases carry one, so other cases keep their established shape.
+    if scenario:
+        normalized["scenario-json"] = scenario
     if "source" in case:
         normalized["source"] = str(case["source"])
     if "comparison-metadata-json" in case:
@@ -119,8 +157,9 @@ def normalize_fanout_cases(cases: list[dict[str, Any]]) -> list[dict[str, str]]:
     return [normalize_fanout_case(case, index) for index, case in enumerate(cases)]
 
 
-def case_run_signature(case: Mapping[str, str]) -> tuple[str, str]:
-    """Return what a normalized case actually runs: its production class and actor variant.
+def case_run_signature(case: Mapping[str, str]) -> tuple[str, str, str]:
+    """Return what a normalized case actually runs: its production class, actor variant and
+    scenario values.
 
     Two cases with the same signature restage and run identically, whatever their IDs. Local and
     remote cases name the same run differently (``production-X`` and ``wrench-<key>``), so IDs
@@ -132,7 +171,8 @@ def case_run_signature(case: Mapping[str, str]) -> tuple[str, str]:
             actor_variant = json.dumps(json.loads(actor_variant), sort_keys=True)
         except json.JSONDecodeError:
             pass
-    return case["production-class"], actor_variant
+    # normalize_fanout_case already sorted the scenario's keys.
+    return case["production-class"], actor_variant, case.get("scenario-json", "")
 
 
 def merge_fanout_cases(
@@ -141,14 +181,14 @@ def merge_fanout_cases(
     """Merge remote additions without allowing duplicates to run twice.
 
     A case is a duplicate when an earlier one has its ID (the ID names its output files) or
-    runs the same production with the same actor variant. The first one wins, so a remote case
-    that repeats a local case runs once, as local.
+    runs the same production with the same actor variant and scenario values. The first one
+    wins, so a remote case that repeats a local case runs once, as local.
 
     ``remote_cases`` must already have passed :func:`prepare_remote_cases`.
     """
     merged: list[dict[str, str]] = []
     seen_case_ids: set[str] = set()
-    seen_signatures: set[tuple[str, str]] = set()
+    seen_signatures: set[tuple[str, str, str]] = set()
     for source, cases in (("local", local_cases), ("remote", remote_cases)):
         for case in normalize_fanout_cases(cases):
             case["source"] = case.get("source", source)
@@ -194,17 +234,69 @@ def _decode_json_field(case: dict[str, Any], key: str, index: int) -> Any:
         raise _untrusted(f"case {index} has invalid {key}") from error
 
 
-def _check_remote_case(case: Any, index: int) -> tuple[dict[str, Any], tuple[int, str] | None]:
-    """Validate one remote case and return it with its actor reference, if any."""
+def _is_number(value: Any) -> bool:
+    # JSON booleans decode to bool, a subclass of int; Brom refuses them as numbers too.
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def _is_number_list(value: Any, max_length: int) -> bool:
+    return (
+        isinstance(value, list)
+        and 0 < len(value) <= max_length
+        and all(_is_number(item) for item in value)
+    )
+
+
+def _scenario_shape_problems(scenario: Any) -> list[str]:
+    """Check that scenario values are plain data of the shapes Brom's parameter types take.
+
+    Values are numbers (FloatParam), lists of numbers (VectorParam), pose objects with ``xyz``
+    and ``rpy`` or ``wxyz`` lists (PoseParam), or null for "the production's default". Whether
+    a name, type or range fits the production is for its Scenario to decide.
+    """
+    if not isinstance(scenario, dict):
+        return ["must be an object of parameter values"]
+    if len(scenario) > _MAX_SCENARIO_PARAMETERS:
+        return [f"sets more than {_MAX_SCENARIO_PARAMETERS} parameters"]
+    problems: list[str] = []
+    for name, value in scenario.items():
+        if not _PARAMETER_NAME.fullmatch(name):
+            problems.append(f"has an invalid parameter name {name[:40]!r}")
+        elif isinstance(value, dict):
+            if not value or not set(value) <= _POSE_KEYS or not all(
+                _is_number_list(item, 4) for item in value.values()
+            ):
+                problems.append(
+                    f'{name} must be a pose like {{"xyz": [x, y, z], "rpy": [r, p, y]}}'
+                )
+        elif not (
+            value is None
+            or _is_number(value)
+            or _is_number_list(value, _MAX_SCENARIO_VECTOR_LENGTH)
+        ):
+            problems.append(f"{name} must be a number, a list of numbers, a pose, or null")
+    return problems
+
+
+def _check_remote_case(
+    case: Any, index: int
+) -> tuple[dict[str, Any], tuple[int, str] | None, dict[str, Any] | None]:
+    """Validate one remote case and return it with its actor reference and scenario, if any."""
     if not isinstance(case, dict):
         raise _untrusted(f"case {index} must be an object")
 
     actor_variant = _decode_json_field(case, "actor-variant-json", index)
     metadata = _decode_json_field(case, "comparison-metadata-json", index)
+    scenario = _decode_json_field(case, "scenario-json", index)
     found = (
         _find_code_fields(case, f"cases[{index}]")
         + _find_code_fields(actor_variant, f"cases[{index}].actor-variant-json")
         + _find_code_fields(metadata, f"cases[{index}].comparison-metadata-json")
+        + _find_code_fields(scenario, f"cases[{index}].scenario-json")
     )
     if found:
         raise _untrusted(
@@ -219,8 +311,13 @@ def _check_remote_case(case: Any, index: int) -> tuple[dict[str, Any], tuple[int
         if key in case and not _SAFE_NAME.fullmatch(str(case[key])):
             raise _untrusted(f"case {index} has an invalid {key}")
 
+    if scenario is not None:
+        problems = _scenario_shape_problems(scenario)
+        if problems:
+            raise _untrusted(f"case {index} scenario-json {'; '.join(problems)}")
+
     if actor_variant is None:
-        return case, None
+        return case, None, scenario
     if (
         not isinstance(actor_variant, dict)
         or set(actor_variant) != {"cast_call_index", "actor"}
@@ -233,35 +330,44 @@ def _check_remote_case(case: Any, index: int) -> tuple[dict[str, Any], tuple[int
             f'case {index} actor-variant-json must be {{"cast_call_index": <int>, '
             '"actor": "<registered name>"}'
         )
-    return case, (actor_variant["cast_call_index"], actor_variant["actor"])
+    return case, (actor_variant["cast_call_index"], actor_variant["actor"]), scenario
 
 
 def prepare_remote_cases(
-    remote_cases: list[Any], actor_resolver: ActorResolver | None = None
+    remote_cases: list[Any],
+    actor_resolver: ActorResolver | None = None,
+    scenario_validator: ScenarioValidator | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Apply the trust boundary to remote cases and expand actor references locally.
+    """Apply the trust boundary to remote cases, expand actor references locally, and check
+    scenario values against the production's Scenario.
 
     Every case is checked before any is expanded, so one bad case rejects the whole response.
-    Returns the runnable cases and warnings for actor references that were skipped.
+    Returns the runnable cases and warnings for cases that were skipped: actor references this
+    Saphira cannot resolve, and scenario values the production does not accept.
     """
     checked = [_check_remote_case(case, index) for index, case in enumerate(remote_cases)]
 
     prepared: list[dict[str, Any]] = []
     warnings: list[str] = []
-    for case, reference in checked:
-        if reference is None:
-            prepared.append(case)
-            continue
-        cast_call_index, actor_name = reference
-        case_id = case.get("case-id") or actor_name
+    for case, reference, scenario in checked:
+        case_id = case.get("case-id") or case.get("production-class")
         try:
-            if actor_resolver is None:
-                raise RemoteActorUnavailable("no local actor registry is available")
-            variant = actor_resolver(cast_call_index, actor_name)
-        except RemoteActorUnavailable as error:
+            if reference is not None:
+                cast_call_index, actor_name = reference
+                if actor_resolver is None:
+                    raise RemoteActorUnavailable("no local actor registry is available")
+                variant = actor_resolver(cast_call_index, actor_name)
+                case = {**case, "actor-variant-json": json.dumps(variant)}
+            if scenario is not None:
+                if scenario_validator is None:
+                    raise ScenarioUnavailable("no scenario validator is available")
+                # Keep Brom's normalized values (poses in rpy form), so equal scenarios match.
+                values = scenario_validator(str(case["production-class"]), scenario)
+                case = {**case, "scenario-json": json.dumps(values, sort_keys=True)}
+        except (RemoteActorUnavailable, ScenarioUnavailable) as error:
             warnings.append(f"Skipped remote case {case_id}: {error}")
             continue
-        prepared.append({**case, "actor-variant-json": json.dumps(variant)})
+        prepared.append(case)
     return prepared, warnings
 
 
@@ -351,6 +457,7 @@ def resolve_fanout(
     timeout_seconds: float = 10.0,
     context: dict[str, Any] | None = None,
     actor_resolver: ActorResolver | None = None,
+    scenario_validator: ScenarioValidator | None = None,
     environ: Mapping[str, str] | None = None,
     opener: Callable[..., HTTPResponse] = urlopen,
 ) -> FanoutResolution:
@@ -405,7 +512,7 @@ def resolve_fanout(
             )
         raise
 
-    remote_cases, warnings = prepare_remote_cases(remote_cases, actor_resolver)
+    remote_cases, warnings = prepare_remote_cases(remote_cases, actor_resolver, scenario_validator)
     cases = merge_fanout_cases(local_cases, remote_cases)
     return FanoutResolution(
         cases,

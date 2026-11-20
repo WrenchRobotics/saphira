@@ -42,12 +42,34 @@ Every run includes the baseline: your production as written. `kinds` adds more c
 
 - `productions` runs related productions (other scenes) with your current cast.
 - `casts` runs your production with each alternative actor, such as a different motion planner.
+- `conditions` runs your production under other initial conditions, such as a moved shelf or a taller table. Only the Wrench API provides these cases; see [Conditions cases](#conditions-cases).
 
 ```yaml
           kinds: productions,casts
 ```
 
 `kinds` applies to local cases and to the cases requested from the Wrench API. When it is empty, local cases include `productions`, and the API returns every kind your key allows. Requesting a kind your key does not allow fails the run, and the error names the missing scope.
+
+## Conditions cases
+
+A conditions case runs the same production and cast with different values for some of the production's initial conditions. The production declares which conditions may change in its brom_drake `Scenario` (brom_drake 1.1.0 and later), with each parameter's type, units and allowed range. Brom's own productions (ChemLab1, ChemLab2, ChemLab3, ShelfPlanning1 and CornellTech1) already declare one; the brom_drake documentation's Scenarios page shows how to declare one for a new production. Each parameter must be a keyword argument of the production's constructor.
+
+A case carries its values in `scenario-json`, a JSON object from parameter name to value:
+
+```json
+{"shelf_pose": {"xyz": [0.05, 1.05, 0.65], "rpy": [0.0, 0.0, 1.5708]}, "table_height": 0.2}
+```
+
+Values are numbers, lists of numbers, poses (`xyz` with either `rpy` or a scalar-first `wxyz` quaternion), or `null` for the production's default. Before a case runs, Saphira checks its values with the production's `Scenario`: a case with an unknown parameter, a value of the wrong type, or one outside its range is skipped with a warning in the job summary. The restaged production then receives the values as constructor arguments:
+
+```python
+production = ShelfPlanning1(
+    meshcat_port_number=meshcat_port_number,
+    **ShelfPlanning1.Scenario.constructor_kwargs({"shelf_pose": {...}}),
+)
+```
+
+Arguments your script passes for the same parameters are removed from the call, and so are arguments the scenario rules out: setting `start_pose` removes `start_configuration`. The values are recorded in the case's result JSON (`scenario`) and restaging manifest.
 
 ## Fanout source
 
@@ -57,7 +79,7 @@ Every run includes the baseline: your production as written. `kinds` adds more c
 - `remote` fails if the service cannot provide cases.
 - `local` never contacts the service.
 
-Remote cases are deduplicated against local cases by `case-id`, and each result JSON records which source its case came from.
+Remote cases are deduplicated against local cases by `case-id` and by what they run (production, actor and scenario values), and each result JSON records which source its case came from.
 
 ## Running `saphira-run` more than once
 

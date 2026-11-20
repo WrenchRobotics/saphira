@@ -30,9 +30,10 @@ inputs:
     default: auto
   kinds:
     description: >-
-      Comma-separated case kinds to run besides the baseline: productions (related productions)
-      and casts (alternative actors). Empty runs productions locally and requests every kind the
-      key permits from the Wrench API.
+      Comma-separated case kinds to run besides the baseline: productions (related productions),
+      casts (alternative actors) and conditions (other initial conditions, which only the Wrench
+      API provides). Empty runs productions locally and requests every kind the key permits from
+      the Wrench API.
     required: false
     default: ''
   max-concurrency:
@@ -124,8 +125,8 @@ runs:
         for kind in "${kinds[@]}"; do
           kind="${kind//[[:space:]]/}"
           case "$kind" in
-            ''|productions|casts) ;;
-            *) refuse "kinds can contain productions and casts, not '$kind'." ;;
+            ''|productions|casts|conditions) ;;
+            *) refuse "kinds can contain productions, casts and conditions, not '$kind'." ;;
           esac
         done
         # brom_drake 1.x needs at least 3.14, and Drake publishes wheels up to 3.14.
