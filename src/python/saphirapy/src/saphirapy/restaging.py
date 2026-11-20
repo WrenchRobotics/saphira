@@ -1,13 +1,28 @@
 import ast
+import inspect
 import subprocess
 import sys
 from copy import deepcopy
 from pathlib import Path
 from .syntax_tree.production_reference import ProductionReference
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 from .utils import find_all_alternative_productions
 import brom_drake.productions.all as brom_all
 NodePath = List[Tuple[str, Optional[int]]]
+
+
+def _json_literal(value: Any) -> ast.expr:
+    """Build the AST of a JSON value (validated scenario values) without parsing any text."""
+    if value is None or isinstance(value, bool | int | float | str):
+        return ast.Constant(value=value)
+    if isinstance(value, list):
+        return ast.List(elts=[_json_literal(item) for item in value], ctx=ast.Load())
+    if isinstance(value, dict):
+        return ast.Dict(
+            keys=[ast.Constant(value=str(key)) for key in value],
+            values=[_json_literal(item) for item in value.values()],
+        )
+    raise TypeError(f"Scenario values must be JSON data, not {type(value).__name__}")
 
 from .syntax_tree.cast_call_reference import CastCallReference
 from .syntax_tree.cast_member_option import CastMemberOption
@@ -481,6 +496,109 @@ class BromRestagingManager:
             node.value.func = ast.Name(id=new_production.__name__, ctx=ast.Load())
 
         return out
+
+    def apply_scenario_in_ast(
+        self,
+        tree: ast.AST,
+        ref: ProductionReference,
+        production_class: type,
+        values: Dict[str, Any],
+    ) -> ast.AST:
+        """
+        **Description**
+
+        Passes scenario values to the production's constructor. The call becomes, for example::
+
+            production = ShelfPlanning1(
+                meshcat_port_number=port,
+                **ShelfPlanning1.Scenario.constructor_kwargs({'shelf_pose': {...}}),
+            )
+
+        so Brom converts the values (poses become RigidTransforms) when the restaged file runs.
+        Arguments the file already passed for the same parameters are removed, and so are
+        arguments that a set value's ``mutually_exclusive`` group rules out (setting
+        ``start_pose`` removes ``start_configuration``).
+
+        **Arguments**
+
+        tree: ast.AST
+            The abstract syntax tree, after :meth:`replace_production_in_ast`.
+
+        ref: ProductionReference
+            The production instance to change.
+
+        production_class: type
+            The production class the call constructs; its ``Scenario`` must declare the values.
+
+        values: dict
+            Scenario values already checked by ``production_class.Scenario.validate``. They are
+            written as literals, never parsed as code.
+        """
+        out = deepcopy(tree)
+        node = self._node_at_path(out, ref.node_path)
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
+            raise ValueError("The production instance is not assigned from a constructor call.")
+        call = node.value
+
+        replaced = set(values)
+        for group in production_class.Scenario.mutually_exclusive:
+            if any(values.get(name) is not None for name in group):
+                replaced.update(group)
+
+        self._move_positional_arguments_to_keywords(call, production_class, replaced)
+        call.keywords = [keyword for keyword in call.keywords if keyword.arg not in replaced]
+        call.keywords.append(
+            ast.keyword(
+                arg=None,
+                value=ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Attribute(
+                            value=deepcopy(call.func), attr="Scenario", ctx=ast.Load()
+                        ),
+                        attr="constructor_kwargs",
+                        ctx=ast.Load(),
+                    ),
+                    args=[_json_literal(values)],
+                    keywords=[],
+                ),
+            )
+        )
+        return ast.fix_missing_locations(out)
+
+    def _move_positional_arguments_to_keywords(
+        self, call: ast.Call, production_class: type, names: set
+    ) -> None:
+        """Turn the call's positional arguments into keywords when one of them sets a name in
+        ``names``, so it can be removed without shifting the others."""
+        if not call.args:
+            return
+        if any(isinstance(argument, ast.Starred) for argument in call.args):
+            raise ValueError(
+                "Cannot apply scenario values to a production constructed with *args; "
+                "pass its arguments by keyword."
+            )
+        parameters = [
+            parameter
+            for parameter in inspect.signature(production_class).parameters.values()
+            if parameter.kind
+            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        if len(call.args) > len(parameters):
+            raise ValueError(
+                f"{production_class.__name__} is given more positional arguments than it names."
+            )
+        bound = parameters[: len(call.args)]
+        if not any(parameter.name in names for parameter in bound):
+            return
+        if any(parameter.kind is inspect.Parameter.POSITIONAL_ONLY for parameter in bound):
+            raise ValueError(
+                f"Cannot replace positional-only arguments of {production_class.__name__}."
+            )
+        call.keywords = [
+            ast.keyword(arg=parameter.name, value=argument)
+            for parameter, argument in zip(bound, call.args)
+        ] + call.keywords
+        call.args = []
 
     def restage_and_run(self, target_file: Path) -> None:
         """

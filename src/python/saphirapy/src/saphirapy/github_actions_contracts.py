@@ -9,6 +9,7 @@ from saphirapy.productions.cast_member_registry import (
 )
 from saphirapy.restaging import BromRestagingManager
 from saphirapy.fanout import ActorResolver, RemoteActorUnavailable, normalize_fanout_cases
+from saphirapy.scenarios import CONDITIONS_COMPARISON_TYPE, SCENARIO_METADATA_PREFIX
 
 
 # The exit code of a case that ran out of time, from `timeout` or the facade's own limit.
@@ -16,6 +17,8 @@ TIMEOUT_EXIT_CODE = 124
 # Statuses of cases whose simulation ran without succeeding, for example because the algorithm was
 # too expensive for the task. They are reported but, unlike "failed", do not fail the run.
 SIMULATION_OUTCOME_STATUSES = frozenset({"timed-out"})
+# The comparison types the PR comment groups results by.
+COMPARISON_TYPES = frozenset({"actor", "production", CONDITIONS_COMPARISON_TYPE, "unmapped"})
 
 
 def case_status(exit_code: Any, simulation_outcome: Any = None) -> str:
@@ -275,11 +278,11 @@ def _classify_comparison(
     metadata = payload.get("comparison_metadata")
     if isinstance(metadata, dict):
         comparison_type = metadata.get("comparison-type") or metadata.get("comparison_type")
-        if comparison_type in {"actor", "production", "unmapped"}:
+        if comparison_type in COMPARISON_TYPES:
             return str(comparison_type), metadata
 
     comparison_type = payload.get("comparison_type")
-    if comparison_type in {"actor", "production", "unmapped"}:
+    if comparison_type in COMPARISON_TYPES:
         return str(comparison_type), metadata if isinstance(metadata, dict) else {}
 
     if fallback_name.startswith("actor-"):
@@ -383,6 +386,64 @@ def _append_transposed_results_table(
         )
 
 
+def scenario_values(metadata: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return the (parameter, value) pairs a conditions case ran with, from its metadata."""
+    return sorted(
+        (str(key)[len(SCENARIO_METADATA_PREFIX):], str(value))
+        for key, value in metadata.items()
+        if str(key).startswith(SCENARIO_METADATA_PREFIX)
+    )
+
+
+def _append_conditions_table(
+    lines: list[str],
+    conditions_rows: list[ResultRecord],
+    production_rows: list[ResultRecord],
+    result_values: Any,
+) -> None:
+    """Compare conditions cases with their production run under its default conditions."""
+    if not conditions_rows:
+        return
+    conditions_classes = {row["production_class"] for row in conditions_rows}
+    rows = [
+        row
+        for row in production_rows
+        if row["production_class"] in conditions_classes
+        and str(row["comparison_metadata"].get("actor-configuration") or "current") == "current"
+    ] + conditions_rows
+
+    metric_names = _metric_names(rows)
+    table_rows: list[list[str]] = []
+    for row in rows:
+        values = scenario_values(row["comparison_metadata"])
+        changed = "<br>".join(f"{name} = {value}" for name, value in values) or "Defaults"
+        table_rows.append(
+            [
+                changed.replace("|", "\\|"),
+                row["production_class"].replace("|", "\\|"),
+                row["production"].replace("|", "\\|"),
+                row["exit_code"],
+                row["duration_seconds"],
+                row["status"],
+                *result_values(row, metric_names),
+            ]
+        )
+    _append_transposed_results_table(
+        lines,
+        "#### Conditions Comparison",
+        [
+            "Conditions",
+            "Production",
+            "Cast Production",
+            "Exit Code",
+            "Duration (s)",
+            "Status",
+            *[name.replace("|", "\\|") for name in metric_names],
+        ],
+        table_rows,
+    )
+
+
 def build_summary(results_directories: str) -> str:
     rows = collect_result_records(results_directories)
 
@@ -411,6 +472,9 @@ def build_summary(results_directories: str) -> str:
     actor_rows.extend(
         row for row in production_rows if row["production"].startswith("baseline-")
     )
+    conditions_rows = [
+        row for row in rows if row["comparison_type"] == CONDITIONS_COMPARISON_TYPE
+    ]
     other_rows = [row for row in rows if row["comparison_type"] == "unmapped"]
 
     def result_values(row: ResultRecord, values: list[str]) -> list[str]:
@@ -492,6 +556,8 @@ def build_summary(results_directories: str) -> str:
         ],
         production_table_rows,
     )
+
+    _append_conditions_table(lines, conditions_rows, production_rows, result_values)
 
     other_metric_names = _metric_names(other_rows)
     other_table_rows: list[list[str]] = []

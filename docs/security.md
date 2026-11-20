@@ -23,3 +23,5 @@ To post results, `saphira-submit` sends the detected parent and production, each
 ## Remote cases are data, never code
 
 A remote actor case only names a registered actor (`{"cast_call_index": 0, "actor": "bidirectional_rrt"}`), and Saphira expands it from the actor registry of the installed `saphira` version. A remote case that carries `import_statements`, `instantiation_code`, `variable_name`, or `method_to_call` fails the run under every fanout source. A remote actor this version does not know about, or one that does not fit the production's cast call, is skipped with a warning in the job summary.
+
+A remote conditions case carries only values in `scenario-json`: numbers, lists of numbers, poses and nulls. Any other shape (strings, booleans, other keys in a pose, parameter names that are not identifiers) fails the run under every fanout source. Saphira then checks the values with the production's brom_drake `Scenario`, skipping with a warning a case it refuses, and writes them into the restaged file as literals passed to `Scenario.constructor_kwargs`, so they never become code.

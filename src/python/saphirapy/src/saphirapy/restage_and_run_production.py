@@ -15,6 +15,7 @@ from saphirapy.productions.evaluators.offline_kinematic_motion_planning import (
     OfflineKinematicMotionPlanningEvaluator,
 )
 from saphirapy.restaging import BromRestagingManager
+from saphirapy.scenarios import validate_scenario
 from saphirapy.syntax_tree.cast_member_option import CastMemberOption
 
 
@@ -39,6 +40,7 @@ def write_restaging_manifest(
     current_actors: list[dict[str, str | int | None]],
     actor_variant: dict | None,
     exit_code: int,
+    scenario: dict | None = None,
 ) -> None:
     """Write the exact restaging inputs and generated file location as YAML."""
     lines = [
@@ -58,6 +60,8 @@ def write_restaging_manifest(
         lines.append("actor_variant:")
         for key, value in actor_variant.items():
             lines.append(f"  {key}: {_yaml_scalar(value)}")
+    # The validated values the production was constructed with, or null for its defaults.
+    lines.append(f"scenario: {_yaml_scalar(scenario)}")
 
     manifest_path.write_text("\n".join(lines) + "\n")
 
@@ -140,6 +144,7 @@ def restage_and_run_one(
     output_dir: Path,
     actor_variant: dict | None = None,
     cast_production_name: str | None = None,
+    scenario: dict | None = None,
 ) -> dict:
     manager = BromRestagingManager(output_dir=output_dir)
     parsed_tree = ast.parse(target_file.read_text())
@@ -157,6 +162,12 @@ def restage_and_run_one(
         raise ValueError(f"Could not resolve production class named {production_class_name}.")
 
     new_tree = manager.replace_production_in_ast(parsed_tree, production_ref, alt_production)
+    if scenario is not None:
+        # The facade checked remote values already; check again, since this is where they run.
+        scenario = validate_scenario(production_class_name, scenario)
+        new_tree = manager.apply_scenario_in_ast(
+            new_tree, production_ref, alt_production, scenario
+        )
     cast_calls = manager.find_easy_cast_and_build_calls(parsed_tree)
     current_actors = [
         {
@@ -199,6 +210,7 @@ def restage_and_run_one(
         current_actors,
         actor_variant,
         exit_code,
+        scenario,
     )
     result = {
         "production_class": production_class_name,
@@ -210,6 +222,8 @@ def restage_and_run_one(
         result["cast_production_name"] = cast_production_name
     if actor_variant is not None:
         result["actor_variant"] = actor_variant["name"]
+    if scenario is not None:
+        result["scenario"] = scenario
 
     metrics = _collect_additional_metrics(production)
     if metrics:
@@ -228,6 +242,12 @@ def main() -> int:
     parser.add_argument("--result-json", type=Path, required=False)
     parser.add_argument("--actor-variant-json", type=str, required=False)
     parser.add_argument("--cast-production-name", type=str, required=False)
+    parser.add_argument(
+        "--scenario-json",
+        type=str,
+        required=False,
+        help="Values for the production's Scenario parameters, as a JSON object.",
+    )
     args = parser.parse_args()
 
     result = restage_and_run_one(
@@ -236,6 +256,7 @@ def main() -> int:
         output_dir=args.output_dir.resolve(),
         actor_variant=(json.loads(args.actor_variant_json) if args.actor_variant_json else None),
         cast_production_name=args.cast_production_name,
+        scenario=(json.loads(args.scenario_json) if args.scenario_json else None),
     )
 
     if args.result_json is not None:

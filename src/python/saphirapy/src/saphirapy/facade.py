@@ -27,10 +27,12 @@ from saphirapy.github_actions_contracts import (
     fails_run,
     finalize_result_payload,
 )
+from saphirapy.scenarios import validate_scenario, with_scenario_metadata
 
 # Case kinds beyond the baseline: productions are the related productions, casts the alternative
-# actors for each cast call.
-KINDS = ("productions", "casts")
+# actors for each cast call, and conditions the production under other initial conditions
+# (scenario values). Conditions cases come only from the Wrench API; Saphira makes none locally.
+KINDS = ("productions", "casts", "conditions")
 # The kinds of local cases when none are chosen. Remote fanout then gets every kind the key permits.
 DEFAULT_LOCAL_KINDS = ("productions",)
 # Debugging knobs. They set the defaults of --fanout-timeout-seconds and --progress, so they reach
@@ -65,7 +67,7 @@ def locate_example(path: Path) -> Path:
 
 def _case_comparison_metadata(case: dict[str, str]) -> dict | None:
     raw = case.get("comparison-metadata-json")
-    return json.loads(raw) if raw else None
+    return with_scenario_metadata(json.loads(raw) if raw else None, case.get("scenario-json", ""))
 
 
 def _decode_output(output: str | bytes | None) -> str:
@@ -127,6 +129,8 @@ def _run_case(case: dict[str, str], target_file: str, restaged_root: str, result
     ]
     if case["actor-variant-json"]:
         command.extend(["--actor-variant-json", case["actor-variant-json"]])
+    if case.get("scenario-json"):
+        command.extend(["--scenario-json", case["scenario-json"]])
 
     started = time.monotonic()
     heartbeat_stop = threading.Event()
@@ -452,6 +456,7 @@ def main() -> int:
             detection, local_cases, kinds
         ),
         actor_resolver=build_remote_actor_resolver(target_file),
+        scenario_validator=validate_scenario,
     )
     report_fanout_warnings(resolution.warnings, os.environ.get("GITHUB_STEP_SUMMARY"))
     results = run_fanout(
