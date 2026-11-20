@@ -85,10 +85,15 @@ Pull requests from forks get no secrets or OIDC tokens. They run local cases onl
 
 A case that **fails** fails the run. Its error output is in the job log, under the case's progress line. A case that **times out** is reported but does not fail the run. See [Results and reports](docs/results.md) for details.
 
+## Report your own metrics
+
+Saphira compares a few metrics on its own. To compare your own as well, such as grasp success or peak joint torque, add a `saphira_metrics(production)` function to your production script that returns a dict of numbers. You don't install or import anything new. See [Custom metrics](docs/custom-metrics.md).
+
 ## More documentation
 
 - [Configuration](docs/configuration.md): every input and output of `saphira-run`, running it more than once in a workflow, and debugging settings.
 - [Results and reports](docs/results.md): case outcomes, logs and artifacts, and how reports are posted.
+- [Custom metrics](docs/custom-metrics.md): reporting and comparing your own metrics with `saphira_metrics`.
 - [Security](docs/security.md): API keys tied to a repository, OIDC tokens, and what Saphira sends to the Wrench API.
 - [`saphira-collate-comment` (deprecated)](docs/saphira-collate-comment.md).
 

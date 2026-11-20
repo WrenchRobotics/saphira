@@ -14,6 +14,8 @@ The `failed-count` output counts only `failed` cases, and the action fails when 
 
 Every result JSON records the case's `status`, its `exit_code`, and a `simulation_outcome` object describing what the simulation did, as opposed to whether Saphira could run it. For now it only says whether the case timed out (`{"timed_out": true}`). It replaces the top-level `timed_out` field of earlier versions.
 
+A case that reports metrics also has `metrics` (metric name to number), `metric_definitions` (how to compare each metric), and, when your script's custom metrics had problems, `metric_warnings`. See [Custom metrics](custom-metrics.md).
+
 ## Comparisons
 
 The job summary and PR comment group cases by comparison type: actor cases under **Actor Comparison**, related productions under **Production Comparison**, and conditions cases under **Conditions Comparison**. The conditions table lists the values each case changed, next to the production run under its default conditions. Each changed value is also in the case's `comparison_metadata` as `scenario.<parameter>`.
