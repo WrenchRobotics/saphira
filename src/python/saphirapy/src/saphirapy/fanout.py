@@ -119,21 +119,44 @@ def normalize_fanout_cases(cases: list[dict[str, Any]]) -> list[dict[str, str]]:
     return [normalize_fanout_case(case, index) for index, case in enumerate(cases)]
 
 
+def case_run_signature(case: Mapping[str, str]) -> tuple[str, str]:
+    """Return what a normalized case actually runs: its production class and actor variant.
+
+    Two cases with the same signature restage and run identically, whatever their IDs. Local and
+    remote cases name the same run differently (``production-X`` and ``wrench-<key>``), so IDs
+    alone cannot find duplicates.
+    """
+    actor_variant = case["actor-variant-json"]
+    if actor_variant:
+        try:
+            actor_variant = json.dumps(json.loads(actor_variant), sort_keys=True)
+        except json.JSONDecodeError:
+            pass
+    return case["production-class"], actor_variant
+
+
 def merge_fanout_cases(
     local_cases: list[dict[str, Any]], remote_cases: list[dict[str, Any]]
 ) -> list[dict[str, str]]:
     """Merge remote additions without allowing duplicates to run twice.
 
+    A case is a duplicate when an earlier one has its ID (the ID names its output files) or
+    runs the same production with the same actor variant. The first one wins, so a remote case
+    that repeats a local case runs once, as local.
+
     ``remote_cases`` must already have passed :func:`prepare_remote_cases`.
     """
     merged: list[dict[str, str]] = []
     seen_case_ids: set[str] = set()
+    seen_signatures: set[tuple[str, str]] = set()
     for source, cases in (("local", local_cases), ("remote", remote_cases)):
         for case in normalize_fanout_cases(cases):
             case["source"] = case.get("source", source)
-            if case["case-id"] in seen_case_ids:
+            signature = case_run_signature(case)
+            if case["case-id"] in seen_case_ids or signature in seen_signatures:
                 continue
             seen_case_ids.add(case["case-id"])
+            seen_signatures.add(signature)
             merged.append(case)
     return merged
 
