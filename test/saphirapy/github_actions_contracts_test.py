@@ -231,6 +231,67 @@ class TestGitHubActionContracts(unittest.TestCase):
                 summary,
             )
 
+    def test_summary_lists_custom_metric_warnings_once_with_their_cases(self):
+        with TemporaryDirectory() as tmpdir:
+            results_directory = Path(tmpdir)
+            warning = "saphira_metrics raised KeyError: 'station'\nsee stderr.log"
+            for name in ("baseline-ChemLab1", "production-ShelfPlanning1"):
+                (results_directory / f"{name}.json").write_text(
+                    json.dumps(
+                        {
+                            "production_class": "ChemLab1",
+                            "cast_production_name": name,
+                            "exit_code": 0,
+                            "duration_seconds": 1.0,
+                            "metric_warnings": [warning],
+                        }
+                    )
+                )
+
+            summary = build_summary(str(results_directory))
+
+        self.assertIn("#### Custom Metric Warnings", summary)
+        self.assertIn(
+            "- saphira_metrics raised KeyError: 'station' see stderr.log "
+            "(`baseline-ChemLab1`, `production-ShelfPlanning1`)",
+            summary,
+        )
+        self.assertEqual(summary.count("raised KeyError"), 1)
+
+    def test_summary_headers_show_metric_units(self):
+        with TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "ChemLab1.json").write_text(
+                json.dumps(
+                    {
+                        "production_class": "ChemLab1",
+                        "exit_code": 0,
+                        "duration_seconds": 1.5,
+                        "metrics": {"Peak Joint Torque": 12.5, "Grasp Success": 1.0},
+                        "metric_definitions": {
+                            "Peak Joint Torque": {"better": "lower", "unit": "N·m"},
+                            "Grasp Success": {"better": "higher"},
+                        },
+                    }
+                )
+            )
+
+            summary = build_summary(tmpdir)
+
+        self.assertIn(
+            "| Result | Exit Code | Duration (s) | Status | Peak Joint Torque (N·m) | Grasp Success |",
+            summary,
+        )
+
+    def test_summary_has_no_warning_section_without_warnings(self):
+        with TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "ChemLab1.json").write_text(
+                json.dumps({"production_class": "ChemLab1", "exit_code": 0})
+            )
+
+            summary = build_summary(tmpdir)
+
+        self.assertNotIn("Custom Metric Warnings", summary)
+
     def test_summary_separates_actor_variants_from_production_variants(self):
         with TemporaryDirectory() as tmpdir:
             results_directory = Path(tmpdir)

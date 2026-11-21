@@ -44,6 +44,11 @@ class ResultRecord(TypedDict):
     comparison_type: str
     comparison_metadata: dict[str, Any]
     metrics: dict[str, str]
+    # How to compare each metric (better, unit, tolerance), from the built-in evaluator and the
+    # script's SAPHIRA_METRICS. See saphirapy.custom_metrics.
+    metric_definitions: dict[str, dict[str, Any]]
+    # Problems with the script's custom metrics. They never fail the case.
+    metric_warnings: list[str]
 
 
 def _comparison_metadata(
@@ -299,6 +304,8 @@ def _normalize_result_file(file_path: Path) -> ResultRecord:
     simulation_outcome: Any = None
     duration_seconds = "n/a"
     metrics: dict[str, str] = {}
+    metric_definitions: dict[str, dict[str, Any]] = {}
+    metric_warnings: list[str] = []
     comparison_type = "unmapped"
     comparison_metadata: dict[str, Any] = {}
 
@@ -316,6 +323,16 @@ def _normalize_result_file(file_path: Path) -> ResultRecord:
         metrics_payload = payload.get("metrics")
         if isinstance(metrics_payload, dict):
             metrics = {str(name): str(value) for name, value in metrics_payload.items()}
+        definitions_payload = payload.get("metric_definitions")
+        if isinstance(definitions_payload, dict):
+            metric_definitions = {
+                str(name): dict(definition)
+                for name, definition in definitions_payload.items()
+                if isinstance(definition, dict)
+            }
+        warnings_payload = payload.get("metric_warnings")
+        if isinstance(warnings_payload, list):
+            metric_warnings = [str(warning) for warning in warnings_payload]
     except Exception:
         pass
 
@@ -328,6 +345,8 @@ def _normalize_result_file(file_path: Path) -> ResultRecord:
         "comparison_type": comparison_type,
         "comparison_metadata": comparison_metadata,
         "metrics": metrics,
+        "metric_definitions": metric_definitions,
+        "metric_warnings": metric_warnings,
     }
 
 
@@ -438,10 +457,52 @@ def _append_conditions_table(
             "Exit Code",
             "Duration (s)",
             "Status",
-            *[name.replace("|", "\\|") for name in metric_names],
+            *_metric_headers(rows, metric_names),
         ],
         table_rows,
     )
+
+
+def _metric_headers(rows: list[ResultRecord], names: list[str]) -> list[str]:
+    """Table headers for the metric columns, with each metric's unit when a case defines one."""
+    headers = []
+    for name in names:
+        unit = next(
+            (
+                str(row["metric_definitions"][name]["unit"])
+                for row in rows
+                if row["metric_definitions"].get(name, {}).get("unit")
+            ),
+            "",
+        )
+        header = f"{name} ({unit})" if unit else name
+        headers.append(header.replace("|", "\\|"))
+    return headers
+
+
+MAX_SUMMARY_METRIC_WARNINGS = 20
+
+
+def _append_metric_warnings(lines: list[str], rows: list[ResultRecord]) -> None:
+    """List each distinct custom-metric warning once, with the cases it came from."""
+    cases_by_warning: dict[str, list[str]] = {}
+    for row in rows:
+        for warning in row["metric_warnings"]:
+            cases = cases_by_warning.setdefault(warning, [])
+            if row["production"] not in cases:
+                cases.append(row["production"])
+    if not cases_by_warning:
+        return
+
+    lines.extend(["", "#### Custom Metric Warnings", ""])
+    for warning, cases in list(cases_by_warning.items())[:MAX_SUMMARY_METRIC_WARNINGS]:
+        shown = ", ".join(f"`{case}`" for case in cases[:3])
+        more = f" and {len(cases) - 3} more" if len(cases) > 3 else ""
+        # Exception messages can span lines; keep each warning on its list item.
+        text = " ".join(warning.split())[:300]
+        lines.append(f"- {text} ({shown}{more})")
+    if (hidden := len(cases_by_warning) - MAX_SUMMARY_METRIC_WARNINGS) > 0:
+        lines.append(f"- {hidden} more warning(s) are in the cases' result JSON files")
 
 
 def build_summary(results_directories: str) -> str:
@@ -517,7 +578,7 @@ def build_summary(results_directories: str) -> str:
             "Exit Code",
             "Duration (s)",
             "Status",
-            *[name.replace("|", "\\|") for name in actor_metric_names],
+            *_metric_headers(actor_rows, actor_metric_names),
         ],
         actor_table_rows,
     )
@@ -552,7 +613,7 @@ def build_summary(results_directories: str) -> str:
             "Exit Code",
             "Duration (s)",
             "Status",
-            *[name.replace("|", "\\|") for name in production_metric_names],
+            *_metric_headers(production_rows, production_metric_names),
         ],
         production_table_rows,
     )
@@ -576,7 +637,7 @@ def build_summary(results_directories: str) -> str:
         "#### Other Results",
         ["Result", "Exit Code", "Duration (s)", "Status"],
         other_table_rows,
-        [name.replace("|", "\\|") for name in other_metric_names],
+        _metric_headers(other_rows, other_metric_names),
     )
 
     lines.append("")
@@ -584,5 +645,6 @@ def build_summary(results_directories: str) -> str:
     lines.append(f"Totals: {pass_count} passed, {timed_out}{fail_count} failed")
     if parse_error_count:
         lines.append(f"Warning: {parse_error_count} result file(s) could not be parsed")
+    _append_metric_warnings(lines, rows)
 
     return "\n".join(lines)

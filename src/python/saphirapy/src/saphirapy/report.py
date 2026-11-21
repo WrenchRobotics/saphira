@@ -117,6 +117,28 @@ def _report_row(record: ResultRecord) -> dict[str, Any]:
     }
 
 
+METRIC_DEFINITION_KEYS = ("better", "unit", "tolerance")
+
+
+def _metric_definitions(records: list[ResultRecord]) -> dict[str, dict[str, Any]]:
+    """How to compare each metric, once for the report: every case runs the same script.
+
+    The first case to define a metric wins. Only known keys are sent, cut to the API's limits.
+    """
+    definitions: dict[str, dict[str, Any]] = {}
+    for record in records:
+        for name, definition in record["metric_definitions"].items():
+            key = str(name)[:MAX_MAP_KEY]
+            if key in definitions or len(definitions) >= MAX_MAP_ENTRIES:
+                continue
+            definitions[key] = {
+                field: _metadata_value(definition[field])
+                for field in METRIC_DEFINITION_KEYS
+                if field in definition
+            }
+    return definitions
+
+
 def _saphira_version() -> str | None:
     try:
         return version("saphirapy")
@@ -158,6 +180,8 @@ def build_report(
         },
         "saphira_version": _saphira_version(),
         "results": [_report_row(record) for record in records[:MAX_REPORT_RESULTS]],
+        # Ignored by API versions that predate custom metrics, which compare with their own table.
+        "metric_definitions": _metric_definitions(records[:MAX_REPORT_RESULTS]),
     }
     if (artifact_id or "").isdigit() or _known(artifact_name):
         body["artifact"] = {

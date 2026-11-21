@@ -18,7 +18,7 @@ Neither the OIDC token nor the API key is ever printed. The action passes the AP
 
 To request cases, the facade sends the detected parent and production, the local case IDs, and the `GITHUB_REPOSITORY`, `GITHUB_SHA`, `GITHUB_RUN_ID`, and `GITHUB_RUN_ATTEMPT` values, so the service can choose relevant cases.
 
-To post results, `saphira-submit` sends the detected parent and production, each case's status, exit code, duration and metrics, and the ID and name of the run's uploaded artifact. It does not send your source code or the cases' logs.
+To post results, `saphira-submit` sends the detected parent and production, each case's status, exit code, duration and metrics, how each metric is compared (its direction, unit and tolerance, from your script's `SAPHIRA_METRICS`), and the ID and name of the run's uploaded artifact. It does not send your source code or the cases' logs.
 
 ## Remote cases are data, never code
 
