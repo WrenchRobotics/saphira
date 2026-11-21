@@ -18,8 +18,16 @@ class OfflineKinematicMotionPlanningEvaluator:
 
     An evaluator for offline kinematic motion planning productions. 
     This evaluator checks if the produced motion plan is valid and if it reaches the goal configuration. (or gets close)
-    
+
     """
+    # How to compare each metric that evaluate() returns, in the same form as a production
+    # script's SAPHIRA_METRICS. A script's own definition for one of these names replaces it.
+    METRIC_DEFINITIONS = {
+        "Final Configuration Error": {"better": "lower"},
+        "Joint Space Length of Plan": {"better": "lower"},
+        "Cartesian Space Length of Plan": {"better": "lower", "unit": "m"},
+    }
+
     def __init__(
         self,
         production: OfflineKinematicMotionPlanningProduction,

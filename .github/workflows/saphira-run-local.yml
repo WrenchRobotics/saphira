@@ -28,6 +28,9 @@ jobs:
             path-to-example-run: src/examples/motion_planning1/chem.py
           - name: Grasping
             path-to-example-run: src/examples/grasping1/
+          # Runs the custom metrics example, so its metrics stay working with every change.
+          - name: Custom Metrics
+            path-to-example-run: src/examples/custom_metrics1/chem_with_metrics.py
     steps:
       - name: Checkout
         uses: actions/checkout@v4

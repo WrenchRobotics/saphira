@@ -159,6 +159,44 @@ class BuildReportTest(unittest.TestCase):
         ])
         self.assertNotIn("repository", body)
 
+    def test_metric_definitions_are_sent_once_for_the_report(self):
+        with TemporaryDirectory() as directory:
+            write_result(
+                directory,
+                "baseline-ChemLab1",
+                production_class="ChemLab1",
+                exit_code=0,
+                metrics={"Grasp Success": 1.0},
+                metric_definitions={
+                    "Grasp Success": {"better": "higher"},
+                    "Peak Joint Torque": {"better": "lower", "unit": "N·m", "tolerance": 0.5},
+                },
+                metric_warnings=["not sent"],
+            )
+            write_result(
+                directory,
+                "production-ShelfPlanning1",
+                production_class="ShelfPlanning1",
+                exit_code=0,
+                metric_definitions={
+                    "Grasp Success": {"better": "lower"},
+                    "Final Configuration Error": {"better": "lower", "extra": "dropped"},
+                },
+            )
+
+            body = build_report(directory, section_key="s")
+
+        # The first case to define a metric wins; unknown keys are not sent.
+        self.assertEqual(
+            body["metric_definitions"],
+            {
+                "Grasp Success": {"better": "higher"},
+                "Peak Joint Torque": {"better": "lower", "unit": "N·m", "tolerance": 0.5},
+                "Final Configuration Error": {"better": "lower"},
+            },
+        )
+        self.assertTrue(all("metric_warnings" not in row for row in body["results"]))
+
     def test_unknown_values_are_omitted(self):
         with TemporaryDirectory() as directory:
             body = build_report(

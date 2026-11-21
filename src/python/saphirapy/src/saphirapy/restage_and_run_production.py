@@ -11,6 +11,12 @@ from pathlib import Path
 from types import ModuleType
 
 import brom_drake.productions.all as brom_all
+from saphirapy.custom_metrics import (
+    METRICS_FUNCTION_NAME,
+    collect_custom_metrics,
+    defines_custom_metrics,
+    merge_metrics,
+)
 from saphirapy.productions.evaluators.offline_kinematic_motion_planning import (
     OfflineKinematicMotionPlanningEvaluator,
 )
@@ -109,16 +115,31 @@ def _invoke_restaged_main(restaged_module: ModuleType):
     return main_fn(**kwargs)
 
 
-def _run_restaged_module(restaged_file: Path):
+def _run_restaged_module(restaged_file: Path) -> tuple[ModuleType | None, object, int]:
+    """Load and run the restaged script. Returns the module, main()'s production, and exit code.
+
+    The module is returned even when main() fails, so its custom metric definitions can be read.
+    """
+    restaged_module = None
     try:
         restaged_module = _load_module_from_path(restaged_file)
-        return _invoke_restaged_main(restaged_module), 0
+        return restaged_module, _invoke_restaged_main(restaged_module), 0
     except SystemExit as exc:
         exit_code = exc.code if isinstance(exc.code, int) else 1 if exc.code else 0
-        return None, int(exit_code)
+        return restaged_module, None, int(exit_code)
     except Exception:
         traceback.print_exc()
-        return None, 1
+        return restaged_module, None, 1
+
+
+def _flush_watcher(production) -> None:
+    """Write the brom watcher's raw data and figures, so metrics can read them from disk."""
+    watcher = getattr(production, "watcher", None)
+    if watcher is not None:
+        if hasattr(watcher, "_save_figures"):
+            watcher._save_figures()
+        if hasattr(watcher, "_save_raw_data"):
+            watcher._save_raw_data()
 
 
 def _collect_additional_metrics(production) -> dict[str, float]:
@@ -127,15 +148,47 @@ def _collect_additional_metrics(production) -> dict[str, float]:
     ):
         return {}
 
-    watcher = getattr(production, "watcher", None)
-    if watcher is not None:
-        if hasattr(watcher, "_save_figures"):
-            watcher._save_figures()
-        if hasattr(watcher, "_save_raw_data"):
-            watcher._save_raw_data()
-
     metrics = OfflineKinematicMotionPlanningEvaluator(production=production).evaluate()
     return {metric_name: float(metric_value) for metric_name, metric_value in metrics.items()}
+
+
+def collect_case_metrics(
+    restaged_module: ModuleType | None, production, exit_code: int = 0
+) -> tuple[dict[str, float], dict[str, dict], list[str]]:
+    """The case's metric values, how to compare them, and any warnings about the script's metrics.
+
+    Built-in metrics come first; the script's saphira_metrics() and SAPHIRA_METRICS are merged
+    over them. See saphirapy.custom_metrics.
+    """
+    flush_warnings: list[str] = []
+    if production is None and exit_code == 0 and hasattr(restaged_module, METRICS_FUNCTION_NAME):
+        # main() finished, but Saphira only finds the production through a local of this name.
+        flush_warnings.append(
+            "main() has no local variable named `production`, so saphira_metrics was not "
+            "called; assign the production to `production` inside main()"
+        )
+    if isinstance(production, brom_all.KinematicMotionPlanningProduction):
+        # The built-in evaluator reads the watcher's raw data, as it always has.
+        _flush_watcher(production)
+    elif production is not None and defines_custom_metrics(restaged_module):
+        # Other productions' watchers are flushed only for a script's own metrics, and a failure
+        # here costs the case its watcher files, not its result.
+        try:
+            _flush_watcher(production)
+        except Exception as error:
+            traceback.print_exc()
+            flush_warnings.append(
+                f"saving the brom watcher's data failed ({type(error).__name__}: {error}); "
+                "saphira_metrics ran without it"
+            )
+
+    builtin_values = _collect_additional_metrics(production)
+    builtin_definitions = (
+        OfflineKinematicMotionPlanningEvaluator.METRIC_DEFINITIONS if builtin_values else {}
+    )
+    custom = collect_custom_metrics(restaged_module, production)
+    custom.warnings[:0] = flush_warnings
+    return merge_metrics(builtin_values, builtin_definitions, custom)
 
 
 def restage_and_run_one(
@@ -199,7 +252,7 @@ def restage_and_run_one(
     restaged_file = output_dir / f"{target_file.stem}_{file_cast_production_name}.py"
     restaged_file.write_text(ast.unparse(new_tree))
 
-    production, exit_code = _run_restaged_module(restaged_file)
+    restaged_module, production, exit_code = _run_restaged_module(restaged_file)
     manifest_path = output_dir / f"{file_cast_production_name}.yaml"
     write_restaging_manifest(
         manifest_path,
@@ -225,9 +278,17 @@ def restage_and_run_one(
     if scenario is not None:
         result["scenario"] = scenario
 
-    metrics = _collect_additional_metrics(production)
+    metrics, metric_definitions, metric_warnings = collect_case_metrics(
+        restaged_module, production, exit_code
+    )
     if metrics:
         result["metrics"] = metrics
+    if metric_definitions:
+        result["metric_definitions"] = metric_definitions
+    if metric_warnings:
+        result["metric_warnings"] = metric_warnings
+        for warning in metric_warnings:
+            print(f"Saphira custom metrics: {warning}", file=sys.stderr)
 
     return result
 
