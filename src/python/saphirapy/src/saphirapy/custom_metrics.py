@@ -10,7 +10,7 @@ runs on its own with ``python my_production.py``:
 
 Restaging rewrites a copy of the script, and top-level definitions are kept in that copy, so every
 case (the baseline, related productions, alternative actors and conditions) runs the same metric
-code. A metric that does not make sense for a case is the script's to skip, by leaving it out of
+code. docs/custom-metrics.md is the user guide, and src/examples/custom_metrics1/ a working example. A metric that does not make sense for a case is the script's to skip, by leaving it out of
 the returned dict.
 
 Problems with custom metrics never fail a case. They are collected as warnings, written to the

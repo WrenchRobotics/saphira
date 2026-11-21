@@ -205,5 +205,28 @@ class MergeMetricsTest(unittest.TestCase):
         self.assertEqual(warnings, [])
 
 
+class CustomMetricsExampleTest(unittest.TestCase):
+    """The example in src/examples/custom_metrics1 stays valid. CI runs it with Saphira."""
+
+    def test_the_examples_definitions_pass_without_warnings(self):
+        import importlib.util
+        from pathlib import Path
+
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "src/examples/custom_metrics1/chem_with_metrics.py"
+        )
+        spec = importlib.util.spec_from_file_location("chem_with_metrics_example", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        # A production without a watcher or trajectory: every metric is left out, not an error.
+        result = collect_custom_metrics(module, types.SimpleNamespace())
+
+        self.assertEqual(result.values, {})
+        self.assertEqual(result.warnings, [])
+        self.assertEqual(set(result.definitions), set(module.SAPHIRA_METRICS))
+
+
 if __name__ == "__main__":
     unittest.main()

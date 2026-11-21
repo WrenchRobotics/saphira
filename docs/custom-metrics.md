@@ -4,6 +4,8 @@ Saphira reports a few metrics on its own, such as how far a motion plan ends fro
 
 You don't install or import anything new. Your script still runs on its own with `python your_production.py`.
 
+For a complete, working script, see the [custom metrics example](../src/examples/custom_metrics1/readme.md). It's the ChemLab1 motion planning example with metrics taken from the planned trajectory, from data recorded during the simulation, and from the production's goal.
+
 ## Quick start
 
 Add these two top-level definitions to your production script, next to `main()`:
@@ -68,21 +70,24 @@ A metric missing from a case is shown as blank for that case and is not compared
 
 ### Reading recorded data
 
-Before calling `saphira_metrics`, Saphira saves the production's brom_drake watcher data (raw port data and figures) to disk. That lets you load a port's recorded history. Saphira's built-in evaluator reads the arm's joint positions this way:
+When `main()` builds the production with `with_watcher=True`, its brom_drake watcher records the ports it watches during the simulation. Read that data from memory through the watcher's port watchers. This works the same way when your script runs on its own and when Saphira runs it:
 
 ```python
 def saphira_metrics(production):
-    port_watcher = production.watcher.get_port_watcher(
+    watcher = production.watcher
+    port_watcher = watcher.get_port_watcher(
         system_name=production.station.get_name(),
         port_name="measured_arm_position",
     )
-    history = np.load(
-        port_watcher.file_manager.raw_data_file_path(output_port=port_watcher.port)
-    )
-    return {"Samples Recorded": history.shape[0]}
+    data = port_watcher.get_data_dictionary(watcher.diagram_context)
+    positions = next(iter(data.values()))  # shape: (number of joints, number of samples)
+    times = port_watcher.get_timing_array(watcher.diagram_context)
+    return {"Samples Recorded": positions.shape[1]}
 ```
 
-If saving the watcher data fails, Saphira still calls `saphira_metrics` and adds a warning.
+`get_port_watcher` raises a `ValueError` when the system or port isn't being watched, which can happen in some productions Saphira runs. The [example](../src/examples/custom_metrics1/chem_with_metrics.py) catches it and leaves those metrics out.
+
+Saphira also saves the watcher's raw data and figures to disk before calling `saphira_metrics`. If that fails, it still calls `saphira_metrics` and adds a warning.
 
 ### Errors never fail a case
 
@@ -125,16 +130,20 @@ Your script can change how these behave:
 
 ## Trying your metrics locally
 
-Your script doesn't import saphirapy, so you can test the function directly. For example, call it at the end of `main()` while you develop:
+Your script doesn't import saphirapy, so you can test the function directly. The example does it by returning the production from `main()` and printing the metrics when the file is run on its own:
 
 ```python
 def main():
     production = ShelfPlanning1(...)
     ...
-    print(saphira_metrics(production))
+    return production
+
+
+if __name__ == "__main__":
+    print(saphira_metrics(main()))
 ```
 
-Remove the call before committing, or leave it in: Saphira doesn't use anything `main()` prints.
+Saphira calls `main()` itself and ignores the `if __name__ == "__main__":` block, so you can keep it in the committed script.
 
 ## Limits
 

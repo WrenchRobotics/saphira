@@ -87,7 +87,7 @@ A case that **fails** fails the run. Its error output is in the job log, under t
 
 ## Report your own metrics
 
-Saphira compares a few metrics on its own. To compare your own as well, such as grasp success or peak joint torque, add a `saphira_metrics(production)` function to your production script that returns a dict of numbers. You don't install or import anything new. See [Custom metrics](docs/custom-metrics.md).
+Saphira compares a few metrics on its own. To compare your own as well, such as grasp success or peak joint torque, add a `saphira_metrics(production)` function to your production script that returns a dict of numbers. You don't install or import anything new. See [Custom metrics](docs/custom-metrics.md), and [`src/examples/custom_metrics1/chem_with_metrics.py`](src/examples/custom_metrics1/chem_with_metrics.py) for a working example.
 
 ## More documentation
 
