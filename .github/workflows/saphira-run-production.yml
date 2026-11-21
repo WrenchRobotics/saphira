@@ -47,7 +47,7 @@ jobs:
           api-key: ${{ secrets.WRENCH_SAPHIRA_API_KEY }}
           # The Saphira GitHub App must post the results; a workflow comment in its place fails the check.
           report-mode: app
-          kinds: productions,casts
+          kinds: productions,casts,conditions
           max-concurrency: '2'
           run-timeout-seconds: '300'
           python-version: ${{ env.PYTHON_VERSION }}
