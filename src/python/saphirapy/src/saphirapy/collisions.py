@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
+from brom_drake.utils.collision_checking import find_collisions
 
 # One sample's collisions: (name_A, name_B, depth) for every colliding pair.
 SampleCollisions = Sequence[Tuple[str, str, float]]
@@ -113,38 +114,12 @@ def summarize_collisions(
 
 
 def _find_collisions_in_context(scene_graph, root_context, plant, threshold):
-    """
-    Uses ``brom_drake.utils.collision_checking.find_collisions`` when the
-    installed brom has it, and an equivalent point-pair-penetration query otherwise.
-    """
-    try:
-        from brom_drake.utils.collision_checking import find_collisions
-    except ImportError:
-        find_collisions = None
-
-    if find_collisions is not None:
-        return [
-            (c.name_A, c.name_B, c.depth)
-            for c in find_collisions(
-                scene_graph, root_context, plant=plant, threshold=threshold
-            )
-        ]
-
-    query_object = scene_graph.get_query_output_port().Eval(
-        scene_graph.GetMyContextFromRoot(root_context)
-    )
-    inspector = query_object.inspector()
-
-    def name_of(geometry_id):
-        body = plant.GetBodyFromFrameId(inspector.GetFrameId(geometry_id))
-        if body is None:
-            return inspector.GetName(geometry_id)
-        return f"{plant.GetModelInstanceName(body.model_instance())}::{body.name()}"
-
+    """Every colliding pair in ``root_context`` as ``(name_A, name_B, depth)``."""
     return [
-        (name_of(p.id_A), name_of(p.id_B), float(p.depth))
-        for p in query_object.ComputePointPairPenetration()
-        if p.depth > threshold
+        (c.name_A, c.name_B, c.depth)
+        for c in find_collisions(
+            scene_graph, root_context, plant=plant, threshold=threshold
+        )
     ]
 
 
