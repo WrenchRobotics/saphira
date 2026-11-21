@@ -118,6 +118,9 @@ class OfflineKinematicMotionPlanningEvaluator:
         A collision is counted once per pair of bodies each time they start touching.
 
         Returns None if the production has not been built yet (no diagram context).
+
+        threshold (1 mm) is stricter than brom's planner (1 cm); kwesiRutledge/brom_drake-py#106
+        tracks making the planner's configurable so the two can be synchronized.
         """
         root_context = getattr(self.production, "diagram_context", None)
         if root_context is None:

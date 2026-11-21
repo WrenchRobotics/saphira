@@ -29,6 +29,7 @@ from saphirapy.collisions import (
 )
 
 # brom's PrototypicalPlannerSystem default: a pair penetrating deeper than this collides.
+# TODO: read it from the production once kwesiRutledge/brom_drake-py#106 / #107 land.
 PLANNER_THRESHOLD = 1e-2
 # OfflineKinematicMotionPlanningEvaluator.calculate_collision_summary default.
 EVALUATOR_THRESHOLD = 1e-3
