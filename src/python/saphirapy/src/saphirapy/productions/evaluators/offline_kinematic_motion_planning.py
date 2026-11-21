@@ -5,6 +5,12 @@ from pathlib import Path
 import numpy as np
 from typing import Dict, List, Tuple
 
+from saphirapy.collisions import (
+    CollisionSummary,
+    collisions_along_configuration_history,
+    summarize_collisions,
+)
+
 class OfflineKinematicMotionPlanningEvaluator:
     """
     Description
@@ -20,6 +26,10 @@ class OfflineKinematicMotionPlanningEvaluator:
         "Final Configuration Error": {"better": "lower"},
         "Joint Space Length of Plan": {"better": "lower"},
         "Cartesian Space Length of Plan": {"better": "lower", "unit": "m"},
+        # 0 or 1; a plan that never collides is better.
+        "Collision Occurred": {"better": "lower"},
+        # Collision onsets (see saphirapy.collisions); fewer is better.
+        "Number of Collisions": {"better": "lower"},
     }
 
     def __init__(
@@ -82,11 +92,50 @@ class OfflineKinematicMotionPlanningEvaluator:
 
     def evaluate(self, tolerance: float = 1e-5) -> Dict[str, float]:
         configuration_history = self._load_data_for_evaluation()
-        return {
+        metrics = {
             "Final Configuration Error": self.calculate_final_configuration_error(configuration_history),
             "Joint Space Length of Plan": self.calculate_joint_space_length_of_plan(configuration_history),
             "Cartesian Space Length of Plan": self.calculate_cartesian_space_length_of_plan(configuration_history),
         }
+
+        collision_summary = self.calculate_collision_summary(configuration_history)
+        if collision_summary is not None:
+            metrics.update(collision_summary.as_metrics())
+
+        return metrics
+
+    def calculate_collision_summary(
+        self,
+        configuration_history: np.ndarray,
+        threshold: float = 1e-3,
+    ) -> CollisionSummary | None:
+        """
+        Description
+        -----------
+
+        Replay the arm's configuration history through the production's scene graph
+        (with the production's collision filters) and count collisions.
+        A collision is counted once per pair of bodies each time they start touching.
+
+        Returns None if the production has not been built yet (no diagram context).
+
+        threshold (1 mm) is stricter than brom's planner (1 cm); kwesiRutledge/brom_drake-py#106
+        tracks making the planner's configurable so the two can be synchronized.
+        """
+        root_context = getattr(self.production, "diagram_context", None)
+        if root_context is None:
+            return None
+
+        configuration_samples = self._configuration_history_as_samples(configuration_history)
+        per_sample_collisions = collisions_along_configuration_history(
+            plant=self.production.plant,
+            scene_graph=self.production.scene_graph,
+            root_context=root_context,
+            model_instance=self.production.arm,
+            configuration_samples=configuration_samples,
+            threshold=threshold,
+        )
+        return summarize_collisions(per_sample_collisions)
 
     def extract_system_and_port_name_from_file_name(self, file_name: str) -> Tuple[str, str]:
         """
