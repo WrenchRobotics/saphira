@@ -157,6 +157,11 @@ class TestOfflineKinematicMotionPlanningEvaluator(unittest.TestCase):
         self.assertIn("Cartesian Space Length of Plan", metrics)
         self.assertIn("Collision Occurred", metrics)
         self.assertIn("Number of Collisions", metrics)
+        # Every metric needs a definition so reports know how to compare it.
+        self.assertLessEqual(
+            set(metrics),
+            set(OfflineKinematicMotionPlanningEvaluator.METRIC_DEFINITIONS),
+        )
 
     def test_rrt_connect_plan_for_chem_lab1_is_collision_free(self):
         summary = self.evaluator.calculate_collision_summary(self.configuration_history)

@@ -26,6 +26,10 @@ class OfflineKinematicMotionPlanningEvaluator:
         "Final Configuration Error": {"better": "lower"},
         "Joint Space Length of Plan": {"better": "lower"},
         "Cartesian Space Length of Plan": {"better": "lower", "unit": "m"},
+        # 0 or 1; a plan that never collides is better.
+        "Collision Occurred": {"better": "lower"},
+        # Collision onsets (see saphirapy.collisions); fewer is better.
+        "Number of Collisions": {"better": "lower"},
     }
 
     def __init__(
