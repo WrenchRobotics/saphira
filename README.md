@@ -12,15 +12,15 @@ You need:
 - A Python script in that repository that builds and simulates a brom_drake production. Saphira currently supports `ChemLab1` and `ShelfPlanning1` (kinematic motion planning) and `ChemLab2` and `CornellTech1` (offline dynamic motion planning). [`src/examples/motion_planning1/chem.py`](src/examples/motion_planning1/chem.py) is a working example.
 - A script that works on Python 3.14 with brom_drake 1.1.0 or a later 1.x release. Saphira installs both for you when it runs.
 
-Saphira is in alpha, and access is by request.
+Saphira is in alpha and free to start. Every account begins on the free plan, which allows 50 fanout calls a month for each kind of corner case (productions, casts and conditions). When a kind's limit is used up, your runs still pass or fail on their own results, and Saphira says which kind was left out and when the limit resets.
 
 ## Set up Saphira
 
 The [Wrench dashboard](https://www.wrenchrobotics.com/dashboard) walks you through the same steps and tracks your progress through them.
 
-### 1. Get access
+### 1. Sign up
 
-[Request access to Saphira](https://www.wrenchrobotics.com/saphira/request-access). Once your request is approved, [sign in](https://www.wrenchrobotics.com/login) with GitHub.
+[Sign up for Saphira](https://www.wrenchrobotics.com/saphira/signup) with your email address. The link we email you creates your account, enables Saphira and signs you in. Next time, [sign in](https://www.wrenchrobotics.com/login) with a new emailed link.
 
 ### 2. Install the Saphira GitHub App
 

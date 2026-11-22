@@ -31,6 +31,7 @@ The `saphira-run` action is the single entry point to Saphira. It detects the pr
 | `fanout-source` | The fanout source that was used. |
 | `remote-status` | Whether remote fanout was available. |
 | `remote-case-count` | How many of the cases that ran came from the Wrench API. |
+| `exhausted-kinds` | Comma-separated fanout kinds the Wrench API left out because your plan's monthly limit for them is used up, such as `casts`. Empty when every kind was served. Each one also gets a warning annotation and a "Plan limits" note in the job summary. |
 | `fanout-request-id` | The Wrench API's ID for the fanout request. Empty without remote fanout. |
 | `oidc-status` | `sent`, `unavailable` (no `id-token: write` permission), `failed`, or `not-requested` (no remote request was made). |
 | `results-directory` | Where the result JSON files are, for later steps that read them. |
