@@ -74,6 +74,11 @@ outputs:
   remote-case-count:
     description: How many of the cases that ran came from remote fanout.
     value: ${{ steps.run-facade.outputs.remote-case-count }}
+  exhausted-kinds:
+    description: >-
+      Comma-separated fanout kinds left out because the account's monthly plan limit for them is
+      used up, such as "casts". Empty when every kind was served.
+    value: ${{ steps.run-facade.outputs.exhausted-kinds }}
   report-status:
     description: posted, fallback, skipped, or failed.
     value: ${{ steps.submit.outputs.report-status }}
@@ -234,6 +239,7 @@ runs:
       shell: bash
       env:
         RESULTS_DIRECTORIES: ${{ steps.names.outputs.results-directory }}
+        EXHAUSTED_KINDS_JSON: ${{ steps.run-facade.outputs.exhausted-kinds-json }}
       run: |
         set -euo pipefail
         summary="$(python "$GITHUB_ACTION_PATH/collate_results.py")"

@@ -8,7 +8,13 @@ from saphirapy.productions.cast_member_registry import (
     get_alternatives_for_type,
 )
 from saphirapy.restaging import BromRestagingManager
-from saphirapy.fanout import ActorResolver, RemoteActorUnavailable, normalize_fanout_cases
+from saphirapy.fanout import (
+    ActorResolver,
+    RemoteActorUnavailable,
+    exhausted_kinds_from_json,
+    normalize_fanout_cases,
+    plan_limit_message,
+)
 from saphirapy.scenarios import CONDITIONS_COMPARISON_TYPE, SCENARIO_METADATA_PREFIX
 
 
@@ -505,10 +511,20 @@ def _append_metric_warnings(lines: list[str], rows: list[ResultRecord]) -> None:
         lines.append(f"- {hidden} more warning(s) are in the cases' result JSON files")
 
 
-def build_summary(results_directories: str) -> str:
+def build_summary(results_directories: str, exhausted_kinds_json: str = "") -> str:
+    """The combined results as Markdown, for the job summary and the workflow's PR comment.
+
+    ``exhausted_kinds_json`` is the facade's ``exhausted-kinds-json`` output: kinds left out by
+    the account's monthly plan limit, listed first so a run with fewer cases says why.
+    """
     rows = collect_result_records(results_directories)
 
     lines = ["### Combined Saphira Metrics"]
+    exhausted = exhausted_kinds_from_json(exhausted_kinds_json)
+    if exhausted:
+        lines.extend(["", "#### Plan limits", ""])
+        lines.extend(f"- {plan_limit_message(item)}" for item in exhausted)
+        lines.append("")
     if not rows:
         lines.append("- No result files were found")
         return "\n".join(lines)

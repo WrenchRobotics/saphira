@@ -9,7 +9,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 from urllib.error import HTTPError, URLError
 
-from saphirapy.facade import build_fanout_context, parse_kinds, report_fanout_warnings
+from saphirapy.facade import (
+    build_fanout_context,
+    parse_kinds,
+    report_fanout_warnings,
+    report_plan_limits,
+)
 from saphirapy.fanout import (
     FANOUT_PATH,
     API_KEY_ENV,
@@ -17,6 +22,8 @@ from saphirapy.fanout import (
     FanoutRemoteError,
     RemoteActorUnavailable,
     api_endpoint,
+    exhausted_kinds_from_json,
+    plan_limit_message,
     resolve_fanout,
 )
 from saphirapy.github_actions_contracts import (
@@ -232,6 +239,52 @@ class FanoutTest(unittest.TestCase):
                 opener = RecordingOpener({"cases": [], "request_id": request_id})
 
                 self.assertIsNone(self.resolve(opener).request_id)
+
+    def test_exhausted_kinds_from_the_service_are_kept_with_their_reset_date(self):
+        opener = RecordingOpener(
+            {
+                "cases": [],
+                "exhausted_kinds": [
+                    {
+                        "kind": "casts",
+                        "scope": "saphira:fanout:casts",
+                        "limit": 50,
+                        "resets_at": "2026-12-01T00:00:00Z",
+                    }
+                ],
+            }
+        )
+
+        resolution = self.resolve(opener)
+
+        self.assertEqual(
+            resolution.exhausted_kinds,
+            [{"kind": "casts", "limit": 50, "resets_on": "2026-12-01"}],
+        )
+        self.assertEqual(resolution.warnings, [])
+
+    def test_malformed_exhausted_kinds_are_dropped(self):
+        good = {"kind": "productions", "limit": 0, "resets_at": "2026-12-01T00:00:00Z"}
+        for raw in [
+            None,
+            "casts",
+            [None, "casts"],
+            [{**good, "kind": "Casts; rm -rf /"}],
+            [{**good, "kind": "x" * 33}],
+            [{**good, "limit": -1}],
+            [{**good, "limit": "50"}],
+            [{**good, "limit": True}],
+            [{**good, "resets_at": "next month"}],
+            [{**good, "resets_at": None}],
+        ]:
+            with self.subTest(raw=raw):
+                opener = RecordingOpener({"cases": [], "exhausted_kinds": raw})
+
+                self.assertEqual(self.resolve(opener).exhausted_kinds, [])
+
+    def test_a_service_without_plan_limits_reports_none(self):
+        self.assertEqual(self.resolve(RecordingOpener({"cases": []})).exhausted_kinds, [])
+        self.assertEqual(resolve_fanout(self.local_cases).exhausted_kinds, [])
 
     def test_local_and_fallback_runs_have_no_request_id(self):
         self.assertIsNone(resolve_fanout(self.local_cases).request_id)
@@ -578,6 +631,33 @@ class FacadeContextTest(unittest.TestCase):
     def test_unknown_kinds_are_refused_with_the_choices(self):
         with self.assertRaisesRegex(ValueError, "Unknown kinds: actors.*productions, casts"):
             parse_kinds("productions,actors")
+
+    def test_plan_limits_are_annotated_once_per_kind(self):
+        exhausted = [
+            {"kind": "casts", "limit": 50, "resets_on": "2026-12-01"},
+            {"kind": "conditions", "limit": 50, "resets_on": "2026-12-01"},
+        ]
+        with mock.patch("builtins.print") as printed:
+            report_plan_limits(exhausted)
+
+        self.assertEqual(printed.call_count, 2)
+        first = printed.call_args_list[0].args[0]
+        self.assertTrue(first.startswith("::warning title=Saphira plan limit::"))
+        self.assertIn("monthly limit for casts cases (50 calls)", first)
+        self.assertIn("resets on 2026-12-01 (UTC)", first)
+
+    def test_plan_limit_message_and_json_round_trip(self):
+        exhausted = [{"kind": "productions", "limit": 500, "resets_on": "2027-01-01"}]
+
+        self.assertEqual(exhausted_kinds_from_json(json.dumps(exhausted)), exhausted)
+        self.assertEqual(exhausted_kinds_from_json(""), [])
+        self.assertEqual(exhausted_kinds_from_json("not json"), [])
+        self.assertEqual(
+            plan_limit_message(exhausted[0]),
+            "Your plan's monthly limit for productions cases (500 calls) is used up, so Wrench "
+            "sent none this run. It resets on 2027-01-01 (UTC). Your Wrench dashboard shows your "
+            "usage.",
+        )
 
     def test_warnings_reach_annotations_and_the_job_summary(self):
         with TemporaryDirectory() as directory:

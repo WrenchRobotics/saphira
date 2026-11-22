@@ -43,6 +43,9 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,199}$")
 # The service's fanout request ID, echoed back in reports; anything else is ignored.
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+# An exhausted kind as the service names it, and the date part of its reset time.
+_KIND_NAME = re.compile(r"^[a-z_]{1,32}$")
+_RESET_DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 _MAX_ERROR_DETAIL = 300
 # Scenario parameter names are constructor keyword arguments, so plain Python identifiers.
 _PARAMETER_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,99}$")
@@ -93,6 +96,53 @@ class FanoutResolution:
     # Remote cases that will run. A remote case that repeats a local case runs once, as local. A
     # case's "source" is the label the service gave it ("wrench"), so it cannot be counted on.
     remote_case_count: int = 0
+    # Kinds the service left out because the account's monthly plan limit for them is used up,
+    # each as {"kind", "limit", "resets_on"} (a UTC date, YYYY-MM-DD).
+    exhausted_kinds: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _decode_exhausted_kinds(raw: Any, reset_key: str = "resets_at") -> list[dict[str, Any]]:
+    """Return the well-formed entries of an ``exhausted_kinds`` list; drop the rest.
+
+    They reach CI logs, job summaries and PR comments, so only short, known shapes are kept.
+    ``reset_key`` is "resets_at" in the service's response and "resets_on" once normalized.
+    """
+    if not isinstance(raw, list):
+        return []
+    kinds = []
+    for item in raw[:16]:
+        if not isinstance(item, dict):
+            continue
+        kind, limit, resets_at = item.get("kind"), item.get("limit"), item.get(reset_key)
+        reset = _RESET_DATE.match(resets_at) if isinstance(resets_at, str) else None
+        if (
+            isinstance(kind, str)
+            and _KIND_NAME.fullmatch(kind)
+            and isinstance(limit, int)
+            and not isinstance(limit, bool)
+            and limit >= 0
+            and reset
+        ):
+            kinds.append({"kind": kind, "limit": limit, "resets_on": reset.group(1)})
+    return kinds
+
+
+def exhausted_kinds_from_json(text: str) -> list[dict[str, Any]]:
+    """Read the facade's ``exhausted-kinds-json`` output, keeping only well-formed entries."""
+    try:
+        raw = json.loads(text) if text else []
+    except json.JSONDecodeError:
+        return []
+    return _decode_exhausted_kinds(raw, reset_key="resets_on")
+
+
+def plan_limit_message(exhausted: dict[str, Any]) -> str:
+    """One line saying a kind's monthly plan limit is used up, for logs, summaries and comments."""
+    return (
+        f"Your plan's monthly limit for {exhausted['kind']} cases ({exhausted['limit']} calls) is "
+        f"used up, so Wrench sent none this run. It resets on {exhausted['resets_on']} (UTC). "
+        "Your Wrench dashboard shows your usage."
+    )
 
 
 def api_endpoint(api_url: str, path: str) -> str:
@@ -374,7 +424,9 @@ def prepare_remote_cases(
 # --- Remote request ---------------------------------------------------------------------------
 
 
-def _decode_remote_cases(response: HTTPResponse) -> tuple[list[dict[str, Any]], str | None]:
+def _decode_remote_cases(
+    response: HTTPResponse,
+) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]]]:
     try:
         payload = json.loads(response.read().decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -386,7 +438,10 @@ def _decode_remote_cases(response: HTTPResponse) -> tuple[list[dict[str, Any]], 
     request_id = payload.get("request_id") if isinstance(payload, dict) else None
     if not isinstance(request_id, str) or not _REQUEST_ID.fullmatch(request_id):
         request_id = None
-    return cases, request_id
+    exhausted = _decode_exhausted_kinds(
+        payload.get("exhausted_kinds") if isinstance(payload, dict) else None
+    )
+    return cases, request_id, exhausted
 
 
 def _error_detail(body: Any) -> str:
@@ -418,9 +473,9 @@ def fetch_remote_fanout(
     timeout_seconds: float = 10.0,
     context: dict[str, Any] | None = None,
     opener: Callable[..., HTTPResponse] = urlopen,
-) -> tuple[list[dict[str, Any]], str | None]:
-    """POST the run context and return the service's cases and request ID, never logging either
-    token."""
+) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]]]:
+    """POST the run context and return the service's cases, request ID and exhausted kinds,
+    never logging either token."""
     body = {"schema_version": FANOUT_SCHEMA_VERSION, **(context or {})}
     request = Request(
         endpoint,
@@ -493,7 +548,7 @@ def resolve_fanout(
         endpoint, environ=environ, timeout_seconds=timeout_seconds, opener=opener
     )
     try:
-        remote_cases, request_id = fetch_remote_fanout(
+        remote_cases, request_id, exhausted = fetch_remote_fanout(
             endpoint,
             token=token,
             oidc_token=oidc_token,
@@ -522,6 +577,7 @@ def resolve_fanout(
         oidc_status,
         request_id,
         remote_case_count=len(cases) - len(merge_fanout_cases(local_cases, [])),
+        exhausted_kinds=exhausted,
     )
 
 

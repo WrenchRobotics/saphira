@@ -9,7 +9,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from tqdm import tqdm
 
@@ -19,6 +19,7 @@ from saphirapy.fanout import (
     FANOUT_PATH,
     FanoutResolution,
     api_endpoint,
+    plan_limit_message,
     resolve_fanout,
 )
 from saphirapy.github_actions_contracts import (
@@ -391,6 +392,13 @@ def report_fanout_warnings(warnings: list[str], summary_path: str | None) -> Non
             handle.write("\n")
 
 
+def report_plan_limits(exhausted_kinds: list[dict[str, Any]]) -> None:
+    """Annotate the run for each kind left out by the account's monthly plan limit. The job
+    summary and the workflow's PR comment say so too, through the collated summary."""
+    for exhausted in exhausted_kinds:
+        print(f"::warning title=Saphira plan limit::{plan_limit_message(exhausted)}", flush=True)
+
+
 def write_output(path: str | None, key: str, value: str) -> None:
     if not path:
         return
@@ -459,6 +467,7 @@ def main() -> int:
         scenario_validator=validate_scenario,
     )
     report_fanout_warnings(resolution.warnings, os.environ.get("GITHUB_STEP_SUMMARY"))
+    report_plan_limits(resolution.exhausted_kinds)
     results = run_fanout(
         target_file,
         resolution,
@@ -478,6 +487,8 @@ def main() -> int:
         "fanout-request-id": resolution.request_id or "",
         "fanout-cases-json": json.dumps(resolution.cases),
         "remote-case-count": str(resolution.remote_case_count),
+        "exhausted-kinds": ",".join(item["kind"] for item in resolution.exhausted_kinds),
+        "exhausted-kinds-json": json.dumps(resolution.exhausted_kinds),
         "results-directory": str(args.result_directory),
         "result-count": str(len(results)),
         # Cases that timed out are simulation outcomes: reported, but not failures of the run.

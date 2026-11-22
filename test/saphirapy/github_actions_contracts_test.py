@@ -282,6 +282,33 @@ class TestGitHubActionContracts(unittest.TestCase):
             summary,
         )
 
+    def test_summary_lists_plan_limits_first(self):
+        exhausted = json.dumps([{"kind": "casts", "limit": 50, "resets_on": "2026-12-01"}])
+        with TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "ChemLab1.json").write_text(
+                json.dumps({"production_class": "ChemLab1", "exit_code": 0})
+            )
+
+            summary = build_summary(tmpdir, exhausted)
+
+        self.assertIn("#### Plan limits", summary)
+        self.assertIn("- Your plan's monthly limit for casts cases (50 calls) is used up", summary)
+        self.assertLess(summary.index("#### Plan limits"), summary.index("ChemLab1"))
+
+    def test_summary_lists_plan_limits_even_without_results(self):
+        exhausted = json.dumps([{"kind": "casts", "limit": 50, "resets_on": "2026-12-01"}])
+        with TemporaryDirectory() as tmpdir:
+            summary = build_summary(tmpdir, exhausted)
+
+        self.assertIn("#### Plan limits", summary)
+        self.assertIn("- No result files were found", summary)
+
+    def test_summary_has_no_plan_limits_section_when_every_kind_was_served(self):
+        with TemporaryDirectory() as tmpdir:
+            for exhausted in ["", "[]", "not json"]:
+                with self.subTest(exhausted=exhausted):
+                    self.assertNotIn("Plan limits", build_summary(tmpdir, exhausted))
+
     def test_summary_has_no_warning_section_without_warnings(self):
         with TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "ChemLab1.json").write_text(
