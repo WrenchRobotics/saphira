@@ -20,7 +20,7 @@ The [Wrench dashboard](https://www.wrenchrobotics.com/dashboard) walks you throu
 
 ### 1. Sign up
 
-[Sign up for Saphira](https://www.wrenchrobotics.com/saphira/signup) with your email address. The link we email you creates your account, enables Saphira and signs you in. Next time, [sign in](https://www.wrenchrobotics.com/login) with a new emailed link.
+[Create a Wrench account](https://www.wrenchrobotics.com/signup) with your email address, follow the link we email you, then select **Enable Saphira** on your [dashboard](https://www.wrenchrobotics.com/dashboard). Next time, [sign in](https://www.wrenchrobotics.com/login) with a new emailed link.
 
 ### 2. Install the Saphira GitHub App
 
